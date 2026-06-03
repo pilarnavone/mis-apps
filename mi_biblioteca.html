@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mi Biblioteca</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyADfNQH8VC6MgN9T7O6xFpRlr2eN3at65s",
+    authDomain: "planificador-docente-b7a6b.firebaseapp.com",
+    projectId: "planificador-docente-b7a6b",
+    storageBucket: "planificador-docente-b7a6b.firebasestorage.app",
+    messagingSenderId: "775763706860",
+    appId: "1:775763706860:web:e753b1f2b43c47f680f6c9"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const _auth = firebase.auth();
+  const _db   = firebase.firestore();
+  const _provider = new firebase.auth.GoogleAuthProvider();
+
+  window._fbSignIn  = () => _auth.signInWithPopup(_provider).catch(e => console.error(e));
+  window._fbSignOut = () => _auth.signOut();
+  window._fbSave    = async (data) => {
+    const user = _auth.currentUser; if(!user) return;
+    await _db.collection('bibliotecas').doc(user.uid).set(data);
+  };
+  window._fbLoad = async () => {
+    const user = _auth.currentUser; if(!user) return null;
+    const snap = await _db.collection('bibliotecas').doc(user.uid).get();
+    return snap.exists ? snap.data() : null;
+  };
+
+  // Esperar a que las funciones del script principal estén listas
+  window.addEventListener('load', () => {
+    _auth.onAuthStateChanged(async (user) => {
+      if(user) {
+        setAuthUI(true, user.displayName || user.email);
+        setSyncing('☁ Sincronizando con la nube...');
+        const remoto = await window._fbLoad();
+        if(remoto && remoto.books) {
+          books  = remoto.books  || INITIAL_BOOKS;
+          wishes = remoto.wishes || INITIAL_WISH;
+          saveLocal();
+          populateFilters();
+          renderAll();
+          setSyncOk('☁ Datos cargados desde la nube ✓');
+        } else {
+          await window._fbSave({ books, wishes });
+          setSyncOk('☁ Datos locales sincronizados ✓');
+        }
+      } else {
+        setAuthUI(false, '');
+        setSyncMsg('Conectá con Google para sincronizar en la nube.');
+      }
+    });
+  });
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f0f0f0;
+    --surface: #ffffff;
+    --surface2: #e8e8e8;
+    --border: #b0b0b0;
+    --border2: #888888;
+    --text: #111111;
+    --text2: #444444;
+    --text3: #777777;
+    --accent: #1a5c2e;
+    --accent-light: #d4edda;
+    --blue: #0a2f6e;
+    --blue-light: #cce0ff;
+    --blue-border: #0a4db3;
+    --amber: #7a4500;
+    --amber-light: #fde8b0;
+    --success: #1a5c2e;
+    --success-bg: #d4edda;
+    --radius: 10px;
+    --radius-lg: 12px;
+  }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  .app { max-width: 980px; margin: 0 auto; padding: 36px 44px; }
+
+  /* Header */
+  .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:28px; padding-bottom:20px; border-bottom:3px solid var(--border); flex-wrap:wrap; gap:12px; }
+  .header-left h1 { font-size: 28px; font-weight: 700; color: var(--text); }
+  .header-left p { font-size: 15px; color: var(--text2); margin-top: 3px; }
+  .auth-btn { display:flex; align-items:center; gap:8px; padding:10px 18px; border-radius:var(--radius); border:2px solid var(--border2); background:var(--surface); cursor:pointer; font-size:14px; font-weight:500; color:var(--text); font-family:inherit; transition:all 0.15s; }
+  .auth-btn:hover { background: var(--surface2); }
+  .auth-btn.connected { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+  .auth-dot { width:9px; height:9px; border-radius:50%; background:currentColor; }
+
+  /* Sync bar */
+  .sync-bar { background:var(--surface); border:2px solid var(--border); border-radius:var(--radius); padding:11px 16px; margin-bottom:20px; font-size:13px; color:var(--text2); display:flex; align-items:center; gap:8px; font-weight:500; }
+  .sync-bar.syncing { color: var(--blue); border-color: var(--blue-border); }
+  .sync-bar.ok { color: var(--accent); border-color: var(--accent); background: var(--accent-light); }
+  .sync-bar.err { color: #7a0000; border-color: #b30000; background: #fdd0d0; }
+
+  /* Tabs */
+  .tabs { display:flex; gap:6px; margin-bottom:24px; }
+  .tab { flex:1; padding:11px 8px; font-size:15px; font-weight:600; cursor:pointer; border:2px solid var(--border); background:var(--surface); color:var(--text2); border-radius:var(--radius); transition:all 0.15s; font-family:inherit; }
+  .tab.active { background: var(--text); color: #fff; border-color: var(--text); }
+  .tab:hover:not(.active) { background: var(--surface2); color: var(--text); }
+
+  /* Sections */
+  .section { display:none; } .section.active { display:block; }
+
+  /* Filters */
+  .filters { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .filters input, .filters select { padding:10px 14px; border:2px solid var(--border); border-radius:var(--radius); background:var(--surface); color:var(--text); font-size:15px; font-family:inherit; font-weight:500; }
+  .filters input { flex:1; min-width:200px; }
+  .filters input:focus, .filters select:focus { outline:none; border-color: var(--border2); }
+  .count { font-size:13px; color:var(--text3); margin-bottom:10px; font-weight:500; }
+
+  /* Book list */
+  .book-list { display:flex; flex-direction:column; gap:8px; max-height:540px; overflow-y:auto; }
+  .book-item { background:var(--surface); border:2px solid var(--border); border-radius:var(--radius); padding:14px 18px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; cursor:pointer; transition:all 0.12s; }
+  .book-item:hover { background:var(--surface2); border-color:var(--border2); }
+  .book-title { font-size:16px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:500px; }
+  .book-author { font-size:14px; color:var(--text2); margin-top:3px; }
+  .book-meta { display:flex; gap:6px; align-items:center; flex-shrink:0; }
+  .badge { font-size:12px; font-weight:600; padding:3px 10px; border-radius:6px; background:var(--surface2); color:var(--text2); white-space:nowrap; border:2px solid var(--border); }
+  .badge.year { background:var(--blue-light); color:var(--blue); border-color:var(--blue-border); }
+
+  /* Cards / Forms */
+  .card { background:var(--surface); border:2px solid var(--border); border-radius:var(--radius-lg); padding:24px; margin-bottom:16px; }
+  .card h2 { font-size:18px; font-weight:700; margin-bottom:16px; color:var(--text); }
+  .form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-bottom:16px; }
+  .form-group { display:flex; flex-direction:column; gap:5px; }
+  .form-group label { font-size:12px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:0.05em; }
+  .form-group input, .form-group select { padding:10px 12px; border:2px solid var(--border); border-radius:var(--radius); background:var(--surface2); color:var(--text); font-size:15px; font-family:inherit; }
+  .form-group input:focus, .form-group select:focus { outline:none; border-color:var(--border2); }
+  .form-actions { display:flex; gap:10px; justify-content:flex-end; }
+  .btn { padding:10px 20px; border-radius:var(--radius); border:2px solid var(--border); background:var(--surface2); color:var(--text); font-size:14px; font-weight:600; cursor:pointer; font-family:inherit; transition:all 0.12s; }
+  .btn:hover { background:var(--bg); }
+  .btn.primary { background:var(--text); color:#fff; border-color:var(--text); }
+  .btn.primary:hover { opacity:0.85; }
+  .msg { font-size:13px; font-weight:600; color:var(--accent); margin-top:10px; min-height:20px; }
+  .msg.err { color:#7a0000; }
+
+  /* Stats */
+  .stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:14px; margin-bottom:24px; }
+  .stat { background:var(--surface); border:2px solid var(--border); border-radius:var(--radius); padding:18px; text-align:center; }
+  .stat .n { font-size:32px; font-weight:700; color:var(--text); }
+  .stat .l { font-size:12px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:0.06em; margin-top:5px; }
+  .chart-wrap { position:relative; height:280px; margin-bottom:1.5rem; }
+  .top-authors { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; }
+  .author-row { background:var(--surface); border:2px solid var(--border); border-radius:var(--radius); padding:12px 16px; display:flex; align-items:center; gap:12px; }
+  .author-n { font-size:24px; font-weight:700; min-width:32px; color:var(--text); }
+  .author-name { font-size:14px; color:var(--text2); font-weight:500; }
+
+  /* Wish list */
+  .wish-add { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .wish-add input { flex:1; min-width:150px; padding:10px 14px; border:2px solid var(--border); border-radius:var(--radius); background:var(--surface); color:var(--text); font-size:15px; font-family:inherit; }
+  .wish-list { display:flex; flex-direction:column; gap:8px; max-height:480px; overflow-y:auto; }
+  .wish-item { background:var(--surface); border:2px solid var(--border); border-radius:var(--radius); padding:14px 18px; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .wish-actions { display:flex; gap:8px; flex-shrink:0; }
+  .icon-btn { padding:6px 14px; border:2px solid var(--border); border-radius:var(--radius); background:none; cursor:pointer; font-size:14px; font-weight:600; color:var(--text2); font-family:inherit; transition:all 0.12s; }
+  .icon-btn:hover { background:var(--surface2); color:var(--text); }
+  .icon-btn.ok:hover { color:var(--accent); border-color:var(--accent); }
+
+  /* Modal */
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal-bg.open { display:flex; }
+  .modal { background:var(--surface); border-radius:var(--radius-lg); padding:28px; max-width:480px; width:90%; max-height:80vh; overflow-y:auto; border:2px solid var(--border2); }
+  .modal h2 { font-size:20px; font-weight:700; margin-bottom:16px; padding-right:28px; }
+  .modal-close { position:absolute; right:1.5rem; top:1.5rem; background:none; border:none; font-size:22px; cursor:pointer; color:var(--text2); font-weight:700; }
+  .modal-field { margin-bottom:10px; font-size:15px; display:flex; gap:10px; }
+  .modal-field span { color:var(--text2); flex-shrink:0; min-width:90px; font-weight:600; }
+  .empty { text-align:center; padding:3rem; color:var(--text3); font-size:15px; }
+
+  /* Favoritos */
+  .star-btn { background:none; border:none; cursor:pointer; font-size:18px; padding:2px 4px; line-height:1; flex-shrink:0; transition:transform 0.12s; }
+  .star-btn:hover { transform:scale(1.2); }
+  .badge.fav { background:#fff8e1; color:#b8860b; border-color:#f0c040; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width:5px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:4px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="header">
+    <div class="header-left">
+      <h1>📚 Mi Biblioteca</h1>
+      <p>Tu registro de lectura desde 2007</p>
+    </div>
+    <button class="auth-btn" id="auth-btn" onclick="toggleAuth()">
+      <span class="auth-dot"></span>
+      <span id="auth-label">Conectar con Google</span>
+    </button>
+  </div>
+
+  <div class="sync-bar" id="sync-bar">
+    <span>⬤</span> <span id="sync-msg">Conectá tu Google para sincronizar. Los cambios se guardan localmente hasta entonces.</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('leidos',this)">Leídos</button>
+    <button class="tab" onclick="switchTab('agregar',this)">Agregar</button>
+    <button class="tab" onclick="switchTab('favoritos',this)">⭐ Favoritos</button>
+    <button class="tab" onclick="switchTab('pilar',this)">📚 Biblioteca de Pilar</button>
+    <button class="tab" onclick="switchTab('quiero',this)">Quiero leer</button>
+    <button class="tab" onclick="switchTab('stats',this)">Estadísticas</button>
+  </div>
+
+  <!-- FAVORITOS -->
+  <div id="tab-favoritos" class="section">
+    <div class="filters">
+      <input type="text" id="search-fav" placeholder="Buscar en favoritos..." oninput="renderFavoritos()">
+    </div>
+    <div class="count" id="count-fav"></div>
+    <div class="book-list" id="fav-list"></div>
+  </div>
+
+  <!-- BIBLIOTECA DE PILAR -->
+  <div id="tab-pilar" class="section">
+    <div class="filters">
+      <input type="text" id="search-pilar" placeholder="Buscar título o autor..." oninput="renderPilar()">
+      <select id="f-anio-pilar" onchange="renderPilar()"><option value="">Todos los años</option></select>
+    </div>
+    <div class="count" id="count-pilar"></div>
+    <div class="book-list" id="pilar-list"></div>
+  </div>
+
+  <!-- LEÍDOS -->
+  <div id="tab-leidos" class="section active">
+    <div class="filters">
+      <input type="text" id="search" placeholder="Buscar título o autor..." oninput="renderList()">
+      <select id="f-anio" onchange="renderList()"><option value="">Todos los años</option></select>
+      <select id="f-fmt" onchange="renderList()"><option value="">Todos los formatos</option></select>
+    </div>
+    <div class="count" id="count"></div>
+    <div class="book-list" id="book-list"></div>
+  </div>
+
+  <!-- AGREGAR -->
+  <div id="tab-agregar" class="section">
+    <div class="card">
+      <h2>Agregar libro leído</h2>
+      <div class="form-grid">
+        <div class="form-group"><label>Título *</label><input type="text" id="n-titulo" placeholder="Título"></div>
+        <div class="form-group"><label>Autor</label><input type="text" id="n-autor" placeholder="Apellido, Nombre"></div>
+        <div class="form-group"><label>Editorial</label><input type="text" id="n-editorial" placeholder="Editorial"></div>
+        <div class="form-group"><label>Fecha de lectura</label><input type="date" id="n-fecha"></div>
+        <div class="form-group"><label>Formato</label>
+          <select id="n-formato">
+            <option value="">Sin especificar</option>
+            <option>Lo tengo en papel</option><option>Kindle</option>
+            <option>Biblioteca</option><option>Préstamo</option>
+            <option>PDF</option><option>Google Libros</option><option>Otro</option>
+          </select>
+        </div>
+        <div class="form-group" style="grid-column:1/-1"><label>Comentarios</label><textarea id="n-comentarios" placeholder="Notas, quién lo prestó..." rows="3" style="padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius);background:var(--surface2);color:var(--text);font-size:15px;font-family:inherit;resize:vertical;width:100%;"></textarea></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn" onclick="clearForm()">Limpiar</button>
+        <button class="btn primary" onclick="addBook()">Guardar libro</button>
+      </div>
+      <div class="msg" id="add-msg"></div>
+    </div>
+  </div>
+
+  <!-- QUIERO LEER -->
+  <div id="tab-quiero" class="section">
+    <div class="wish-add">
+      <input type="text" id="w-titulo" placeholder="Título..." onkeydown="if(event.key==='Enter')addWish()">
+      <input type="text" id="w-autor" placeholder="Autor..." onkeydown="if(event.key==='Enter')addWish()">
+      <button class="btn primary" onclick="addWish()">+ Agregar</button>
+    </div>
+    <div class="wish-list" id="wish-list"></div>
+  </div>
+
+  <!-- ESTADÍSTICAS -->
+  <div id="tab-stats" class="section">
+    <div class="stats-grid" id="stats-grid"></div>
+    <div class="card" style="padding-bottom:1rem">
+      <h2>Libros por año</h2>
+      <div class="chart-wrap"><canvas id="yearChart" role="img" aria-label="Libros leídos por año"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Autores más leídos</h2>
+      <div class="top-authors" id="top-authors"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal detalle -->
+<div class="modal-bg" id="modal-bg" onclick="if(event.target===this)closeModal()">
+  <div class="modal" style="position:relative">
+    <button class="modal-close" onclick="closeModal()">×</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────────────────────────
+const LS_BOOKS = 'biblioteca_libros';
+const LS_WISH  = 'biblioteca_wish';
+
+// ── DATA ─────────────────────────────────────────────────────────────────────
+const INITIAL_BOOKS = [{"id": 1, "titulo": "Buenísimo Natacha", "autor": "Pescetti, Luis María", "editorial": "Alfaguara", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 2, "titulo": "Chat Natacha Chat", "autor": "Pescetti, Luis María", "editorial": "Alfaguara", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 3, "titulo": "Bituín bituín Natacha", "autor": "Pescetti, Luis María", "editorial": "Alfaguara", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 4, "titulo": "Frin", "autor": "Pescetti, Luis María", "editorial": "Alfaguara", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 5, "titulo": "Lejos de Frin", "autor": "Pescetti, Luis María", "editorial": "Alfaguara", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 6, "titulo": "Cupido 13", "autor": "Mariño, Ricardo", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 7, "titulo": "El secreto del torreón negro", "autor": "Otero, Rodolfo", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 8, "titulo": "Matilda", "autor": "Dahl Roald", "editorial": "Alfaguara", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 9, "titulo": "El niño envuelto", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 10, "titulo": "La edad del pavo", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 11, "titulo": "El pulpo está crudo", "autor": "Pescetti, Luis María", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 12, "titulo": "Enero en Mar del Sur", "autor": "Brandán Aráoz, María", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 13, "titulo": "Lili, Libertad", "autor": "Moure, Gonzalo", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 14, "titulo": "El último mago o Bilembambudín", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 15, "titulo": "La loca del 11 \"J\" (Socorro)", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 16, "titulo": "Manos (Socorro)", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 17, "titulo": "Los Mugins (Socorro)", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 18, "titulo": "La casa viva (Socorro)", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 19, "titulo": "Los desmaravilladores", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 20, "titulo": "Natacha", "autor": "Pescetti, Luis María", "editorial": "Alfaguara", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 21, "titulo": "Un elefante ocupa mucho espacio", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 22, "titulo": "Rafaela", "autor": "Furiasse, Mariana", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 23, "titulo": "Brooklin y medio", "autor": "Sasturain, Juan", "editorial": "Zona Libre", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 24, "titulo": "El caso de la modelo y los lentes de Elvis", "autor": "Schlaen, Carlos", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 25, "titulo": "El tesoro escondido y otras fotos de familia", "autor": "Schujer Silvia", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 26, "titulo": "Amorcitos sub 14", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 27, "titulo": "La nube", "autor": "Olaondo, Susana (?", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 28, "titulo": "El increíble robo del escondite secreto", "autor": "Mc Loughlin, Juan Pedro", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 29, "titulo": "Caídos del mapa", "autor": "Falconi, María Inés", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 30, "titulo": "La ciudad de las bestias", "autor": "Allende, Isabel", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 31, "titulo": "El terror de sexto \"B\"", "autor": "Reyes, Yolanda", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 32, "titulo": "Fiesta", "autor": "", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 33, "titulo": "El complot de Las Flores", "autor": "Ferrari, Andrea", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 34, "titulo": "Prefiero perder", "autor": "Vail, Rachel", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 35, "titulo": "Querido diario (Natacha)", "autor": "Pescetti, Luis María", "editorial": "Alfaguara", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 36, "titulo": "El principito", "autor": "Saint-Exupéry Antoine", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 37, "titulo": "Fontanarrosa y la política", "autor": "Fontanarrosa, Roberto", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 38, "titulo": "El secreto de los delfines (elige tu propia aventura)", "autor": "Packard, Edward", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 39, "titulo": "Un embrujo de 5 siglos", "autor": "Guiraldes, Ana María", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 40, "titulo": "El fantasma de Canterville", "autor": "Wilde, Oscar", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 41, "titulo": "Los ojos de la iguana", "autor": "Vaccarini, Franco", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 42, "titulo": "Caídos del mapa 3", "autor": "Falconi, María Inés", "editorial": "", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 43, "titulo": "El caso del robo al correo", "autor": "Grubissich, Jorge", "editorial": "Amauta", "anio": 2007, "formato": "", "comentarios": ""}, {"id": 45, "titulo": "El monstruo de las frambuesas", "autor": "Méndez, Mario", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 46, "titulo": "Caídos del mapa 4", "autor": "Falconi, María Inés", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 47, "titulo": "Eneas, el último Troyano", "autor": "Vaccarini, Franco", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 48, "titulo": "Alrededor de la luna", "autor": "Verne, Julio", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 49, "titulo": "El reino del dragón de oro", "autor": "Allende, Isabel", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 50, "titulo": "Caídos del mapa 5", "autor": "Falconi, María Inés", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 51, "titulo": "El tesoro subterráneo", "autor": "Méndez, Mario", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 52, "titulo": "Caídos del mapa 2", "autor": "Falconi, María Inés", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 53, "titulo": "Octubre, un crímen", "autor": "Huidobro, Norma", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 54, "titulo": "Encuentro con Flo", "autor": "Escudero, Laura", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 55, "titulo": "Caídos del mapa 6", "autor": "Falconi, María Inés", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 56, "titulo": "Caídos del mapa 7", "autor": "Falconi, María Inés", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 57, "titulo": "El bosque de los Pigmeos", "autor": "Allende, Isabel", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 58, "titulo": "El colegio de los chicos perfectos", "autor": "Ivanier, Federico", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 59, "titulo": "Nuevos casos de los detectives López y Baldosillo", "autor": "Soria, Pedro", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 60, "titulo": "El caso del futbolista enmascarado", "autor": "Schlaen, Carlos", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 61, "titulo": "Cómo nos hicimos amigas", "autor": "Santos, Care", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 62, "titulo": "Cuenta hasta diez", "autor": "Santos, Care", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 63, "titulo": "El caso del mago y la clave secreta", "autor": "Schlaen, Carlos", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 64, "titulo": "¿Quién conoce a Greta Garbo?", "autor": "Huidobro, Norma", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 65, "titulo": "El caso del cantante de rock", "autor": "Schlaen, Carlos", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 66, "titulo": "El príncipe feliz", "autor": "Wilde, Oscar", "editorial": "?", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 67, "titulo": "El ángel de Cristina", "autor": "Rodrigues Gesualdi-Cubillas", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 68, "titulo": "Yo, Matías", "autor": "Sendra", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 69, "titulo": "El caso del videojuego", "autor": "Schlaen, Carlos", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 70, "titulo": "Las crónicas de Narnia, el sobrino del mago", "autor": "Lewis, C. S.", "editorial": "", "anio": 2008, "formato": "Biblioteca", "comentarios": ""}, {"id": 71, "titulo": "Las crónicas de Narnia, el león, la bruja y el armario", "autor": "Lewis, C. S.", "editorial": "", "anio": 2008, "formato": "Biblioteca", "comentarios": ""}, {"id": 72, "titulo": "Las crónicas de Narnia, el caballo y el muchacho", "autor": "Lewis, C. S.", "editorial": "", "anio": 2008, "formato": "Biblioteca", "comentarios": ""}, {"id": 73, "titulo": "Las crónicas de Narnia, el Príncipe Caspian", "autor": "Lewis, C. S.", "editorial": "", "anio": 2008, "formato": "Biblioteca", "comentarios": ""}, {"id": 74, "titulo": "Las crónicas de Narnia, la travesía del viajero del Alba", "autor": "Lewis, C. S.", "editorial": "", "anio": 2008, "formato": "Biblioteca", "comentarios": ""}, {"id": 75, "titulo": "Las crónicas de Narnia, la silla de Plata", "autor": "Lewis, C. S.", "editorial": "", "anio": 2008, "formato": "Biblioteca", "comentarios": ""}, {"id": 76, "titulo": "Las crónicas de Narnia, la última batalla", "autor": "Lewis, C. S.", "editorial": "", "anio": 2008, "formato": "Biblioteca", "comentarios": ""}, {"id": 77, "titulo": "El retrato de Dorian Gray", "autor": "Wilde, Oscar", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 78, "titulo": "Gaturro 1", "autor": "Nik", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 79, "titulo": "Aguada el nacimiento de un guerrero", "autor": "Otero, Héctor", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 80, "titulo": "No somos irrompibles", "autor": "Bornemann, Elsa", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 81, "titulo": "C@ro dice:", "autor": "Falconi, María Inés", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 82, "titulo": "Judi Moody adivina el futuro", "autor": "McDonald, Megan", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 83, "titulo": "Mis sentimientos. ¿Por qué siento lo que siento?", "autor": "", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 84, "titulo": "Ser feliz es fácil", "autor": "Santos, Care", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 85, "titulo": "Prohibido enamorarse", "autor": "Santos, Care", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 86, "titulo": "Heredé un fantasma", "autor": "Escudero, Laura", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 87, "titulo": "El castillo de la piedra lunar", "autor": "Keene, Carolyn", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 88, "titulo": "Mentiras inocentes", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 89, "titulo": "Dime la verdad", "autor": "Santos, Care", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 90, "titulo": "Sorpresas a pares", "autor": "Santos, Care", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 91, "titulo": "Pido gancho", "autor": "Smania, Estela", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 92, "titulo": "Pido gancho 2", "autor": "Smania, Estela", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 93, "titulo": "¿Yo maleducada?", "autor": "Goy, Giulia", "editorial": "", "anio": 2008, "formato": "", "comentarios": ""}, {"id": 95, "titulo": "Hasta el domingo", "autor": "Falconi, María Inés", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 96, "titulo": "Princesa Pop", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 97, "titulo": "Sopa de diamantes", "autor": "Huidobro, Norma", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 98, "titulo": "Pazo vacío", "autor": "Docampo, Xabier P.", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 99, "titulo": "Springfield", "autor": "Olguín, Sergio", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 100, "titulo": "Buscador de finales", "autor": "De Santis, Pablo", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 101, "titulo": "Diosas y plebeyas", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 102, "titulo": "Luces, cámaras y… ¡confusión!", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 103, "titulo": "Doble desafío", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 104, "titulo": "Crisis de verano", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 105, "titulo": "Conflictos de amor", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 106, "titulo": "Todos los amigos juntos", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 107, "titulo": "La rosa de los vientos", "autor": "", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 108, "titulo": "El misterio de la casa paralela", "autor": "Grubissich, Jorge", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 109, "titulo": "Octubre, un crímen", "autor": "Huidobro, Norma", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 110, "titulo": "La maldición del virrey", "autor": "Schlaen, Carlos", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 111, "titulo": "Caídos del mapa 8", "autor": "Falconi, María Inés", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 112, "titulo": "Los crímenes de la calle Morgue", "autor": "Poe, Edgar Allan", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 113, "titulo": "Cartas para Julia", "autor": "Falconi, María Inés", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 114, "titulo": "Las dos Marías", "autor": "Falconi, María Inés", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 115, "titulo": "El jamón del sanguche", "autor": "Bialet, Graciela", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 116, "titulo": "Parecido S.A.", "autor": "Sasturain, Juan", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 117, "titulo": "Fin de semana en el paraíso, dos días de perro", "autor": "Falconi, María Inés", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 118, "titulo": "Mientras duermen las piedras", "autor": "Ramos, María Cristina", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 119, "titulo": "Un nuevo desafío", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 120, "titulo": "El chico perfecto", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 121, "titulo": "Quiero ser… ¡otra!", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 122, "titulo": "Besos cósmicos", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 123, "titulo": "Princesa de Portobello", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 124, "titulo": "Mafalda 2", "autor": "Quino", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 125, "titulo": "Mafalda 1", "autor": "Quino", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 126, "titulo": "Mafalda 3", "autor": "Quino", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 127, "titulo": "Mafalda 4", "autor": "Quino", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 128, "titulo": "El equipo de los sueños", "autor": "Olguín, Sergio", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 129, "titulo": "Los parientes impostores", "autor": "Escudero, Laura", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 130, "titulo": "Mafalda 5", "autor": "Quino", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 131, "titulo": "Los enredos de la Srta. Pacman", "autor": "Macome, Marina", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 132, "titulo": "Dos veranos", "autor": "Méndez, Mario", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 133, "titulo": "Un crímen secundario", "autor": "Birmajer, Marcelo", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 134, "titulo": "De cómo Romeo se transó a Julieta", "autor": "Falconi, María Inés", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 135, "titulo": "También las estatuas tienen miedo", "autor": "Ferrari, Andrea", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 136, "titulo": "Nunca me gustó viajar y otros cuentos antes de partir", "autor": "Antología", "editorial": "", "anio": 2009, "formato": "", "comentarios": ""}, {"id": 138, "titulo": "El tercer conjuro", "autor": "Schlaen, Carlos", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 139, "titulo": "Muerte en el Nilo", "autor": "Christie, Ágatha", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 140, "titulo": "Cianuro espumoso", "autor": "Christie, Ágatha", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 141, "titulo": "Diez negritos", "autor": "Christie, Ágatha", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 142, "titulo": "Asesinato en el Orient Express", "autor": "Christie, Ágatha", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 143, "titulo": "El escorpión de Osiris y la reina de la televisión", "autor": "Schlaen, Carlos", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 144, "titulo": "El testigo mudo", "autor": "Christie, Ágatha", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 145, "titulo": "La muerte de Lord Edware", "autor": "Christie, Ágatha", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 146, "titulo": "Las botas de Anselmo Soria", "autor": "Orgambide, Pedro", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 147, "titulo": "Sammie. Una chica en problemas por una gran mentira", "autor": "Pielichaty, Helena", "editorial": "Ediciones B", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 148, "titulo": "Pijama Party", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 149, "titulo": "Me gustas tú…", "autor": "Vail, Rachel", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 150, "titulo": "El misterio del cuadro sin firma", "autor": "Suárez del Prado, Marcelo", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 151, "titulo": "El caso de los anónimos", "autor": "Christie, Ágatha", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 152, "titulo": "Mafalda 7", "autor": "Quino", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 153, "titulo": "El hombre que quería recordar", "autor": "Ferrari, Andrea", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 154, "titulo": "Posdata te quiero", "autor": "Ahern, Cecelia", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 155, "titulo": "Estoy sola ¿Y qué?", "autor": "Christie, Ágatha", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 156, "titulo": "Fahrenheit 451", "autor": "Bradbury, Ray", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 157, "titulo": "Un cadáver en la biblioteca", "autor": "Christie, Ágatha", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 158, "titulo": "El lunático y su hermana Libertad", "autor": "Kropp, Paul", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 159, "titulo": "Última oportunidad", "autor": "Mary, Carol Higgins Clark", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 160, "titulo": "Relato de un náufrago", "autor": "García Márquez, Gabriel", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 161, "titulo": "El truco de los espejos", "autor": "Christie, Ágatha", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 162, "titulo": "Crónica de una muerte anunciada", "autor": "García Márquez, Gabriel", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 163, "titulo": "El camino de Sherlock", "autor": "Ferrari, Andrea", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 164, "titulo": "Tenemos que hablar", "autor": "Dosio, Celia", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 165, "titulo": "El fantasma de la ópera", "autor": "Leroux, Gastón", "editorial": "", "anio": 2010, "formato": "", "comentarios": ""}, {"id": 167, "titulo": "Crepúsculo", "autor": "Meyer, Stephenie", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 168, "titulo": "Nadar de pie", "autor": "Comino, Sandra", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 169, "titulo": "Luna nueva", "autor": "Meyer, Stephenie", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 170, "titulo": "Amigas, amores y locos errores", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 171, "titulo": "Poder de seducción", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 172, "titulo": "Jugar con fuego", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 173, "titulo": "Las viudas de los jueves", "autor": "Piñeiro, Claudia", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 174, "titulo": "Eclipse", "autor": "Meyer, Stephenie", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 175, "titulo": "Amanecer", "autor": "Meyer, Stephenie", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 176, "titulo": "Un puñado de centeno", "autor": "Christie, Ágatha", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 177, "titulo": "El club de los corazones de solitarios", "autor": "Eulberg Elizabeth", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 178, "titulo": "Los ojos del perro siberiano", "autor": "Santa Ana, Antonio", "editorial": "Norma (Zona libre)", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 179, "titulo": "Me da igual", "autor": "Vail, Rachel", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 180, "titulo": "Origami", "autor": "", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 181, "titulo": "El extraño caso del doctor Jekyll y Mr. Hyde", "autor": "Stevenson, Robert Louis", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 182, "titulo": "El signo de los cuatro", "autor": "Conan Doyle, Arthur", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 183, "titulo": "El regreso de Sherlock Holmes II", "autor": "Conan Doyle, Arthur", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 184, "titulo": "El rastro de la canela", "autor": "Bodoc, Liliana", "editorial": "", "anio": 2011, "formato": "", "comentarios": ""}, {"id": 186, "titulo": "El zorro, comienza la leyenda", "autor": "Allende, Isabel", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 187, "titulo": "Caídos del mapa IX", "autor": "Falconi, María Inés", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 188, "titulo": "Abriendo alas", "autor": "Hopkins, Cathy", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 189, "titulo": "El sabueso de los baskerville", "autor": "Conan Doyle, Arthur", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 190, "titulo": "Ghostgirl, loca por amor", "autor": "Hurley, Tonya", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 191, "titulo": "El misterioso Mr. Brown", "autor": "Christie, Ágatha", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 192, "titulo": "Navidades trágicas", "autor": "Christie, Ágatha", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 193, "titulo": "Casa tomada", "autor": "Cortázar, Julio", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 194, "titulo": "Continuidad de los parques", "autor": "Cortázar, Julio", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 195, "titulo": "Axolotl", "autor": "Cortázar, Julio", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 196, "titulo": "El beso de la mujer araña", "autor": "Puig, Manuel", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 197, "titulo": "La tregua", "autor": "Benedetti, Mario", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 198, "titulo": "Venganza de ángeles", "autor": "Sheldon, Sidney", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 199, "titulo": "La caída de los gigantes", "autor": "Follett, Ken", "editorial": "Plaza Janés (2010)", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 200, "titulo": "El invierno del mundo", "autor": "Follett, Ken", "editorial": "Plaza Janés (2012)", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 201, "titulo": "El psicoanalista", "autor": "Katzenbach, John", "editorial": "", "anio": 2012, "formato": "", "comentarios": ""}, {"id": 203, "titulo": "Telón", "autor": "Christie, Ágatha", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 204, "titulo": "Sangre Kosher", "autor": "Krimer, María Inés", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 205, "titulo": "Los diarios de Nanny", "autor": "McLaughlin Emma, Kraus Nicola", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 206, "titulo": "Poirot investiga", "autor": "Christie, Ágatha", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 207, "titulo": "Tragedia en tres actos", "autor": "Christie, Ágatha", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 208, "titulo": "Vuelo final", "autor": "Follett, Ken", "editorial": "DeBolsillo", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 209, "titulo": "La isla de las tormentas", "autor": "Follett, Ken", "editorial": "Emecé", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 210, "titulo": "Manifiesto comunista", "autor": "Marx Karl y Engels Friedrich", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 211, "titulo": "505 días", "autor": "Suriano, Juan", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 212, "titulo": "Trabajo asalariado y capital", "autor": "Marx Karl y Engels Friedrich", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 213, "titulo": "Volver a Illia", "autor": "Azcoiti, Pedro", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 214, "titulo": "Mafalda", "autor": "Quino", "editorial": "Ediciones de la Flor", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 215, "titulo": "The Go-Between", "autor": "", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 216, "titulo": "Boquitas pintadas", "autor": "Puig, Manuel", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 217, "titulo": "La traición de Rita Haiworth", "autor": "Puig, Manuel", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 218, "titulo": "El tango de la guardia vieja", "autor": "Pérez-Reverte Arturo", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 219, "titulo": "Con ánimo de ofender", "autor": "Pérez-Reverte Arturo", "editorial": "", "anio": 2013, "formato": "", "comentarios": ""}, {"id": 221, "titulo": "Rebelión en la granja", "autor": "Orwell, George", "editorial": "", "anio": 2014, "formato": "Biblioteca", "comentarios": ""}, {"id": 222, "titulo": "El lector de Julio Verne", "autor": "Grandes, Almudena", "editorial": "TusQuets", "anio": 2014, "formato": "Biblioteca", "comentarios": ""}, {"id": 223, "titulo": "Ramos generales", "autor": "", "editorial": "", "anio": 2014, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 224, "titulo": "El estrangulador", "autor": "Sheldon, Sydney", "editorial": "", "anio": 2014, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 225, "titulo": "Belgrano. La revolución de las ideas", "autor": "Valenzuela Diego, Sanguineti Mercedes", "editorial": "Sudamericana", "anio": 2014, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 226, "titulo": "La carta esférica", "autor": "Pérez-Reverte, Arturo", "editorial": "", "anio": 2014, "formato": "Biblioteca", "comentarios": ""}, {"id": 227, "titulo": "100 años de soledad", "autor": "García Márquez, Gabriel", "editorial": "", "anio": 2014, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 228, "titulo": "La aventura de un fotógrafo en La Plata", "autor": "Bioy Casares, Adolfo", "editorial": "Biblioteca esencial (La Nación)", "anio": 2014, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 229, "titulo": "El francotirador paciente", "autor": "Pérez-Reverte, Arturo", "editorial": "Alfaguara", "anio": 2014, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 230, "titulo": "Maldición eterna a quien lea éstas páginas", "autor": "Puig, Manuel", "editorial": "Booket", "anio": 2014, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 231, "titulo": "¿Quién mató a Palomino Molero?", "autor": "Vargas Llosa, Mario", "editorial": "Punto de lectura (2011)", "anio": 2014, "formato": "Biblioteca", "comentarios": ""}, {"id": 232, "titulo": "La dama de noche", "autor": "Rivero, Viviana", "editorial": "", "anio": 2014, "formato": "Biblioteca", "comentarios": ""}, {"id": 233, "titulo": "Pantaleón y las visitadoras", "autor": "Vargas Llosa, Mario", "editorial": "", "anio": 2014, "formato": "Biblioteca", "comentarios": ""}, {"id": 234, "titulo": "El enigma de París", "autor": "De Santis, Pablo", "editorial": "Planeta 2007", "anio": 2014, "formato": "Préstamo", "comentarios": "Mamá"}, {"id": 235, "titulo": "El escándalo Modigliani", "autor": "Follett, Ken", "editorial": "DeBolsillo 2007", "anio": 2014, "formato": "Préstamo", "comentarios": "Mamá"}, {"id": 236, "titulo": "Inés y la alegría", "autor": "Grandes, Almudena", "editorial": "TusQuets", "anio": 2014, "formato": "Biblioteca", "comentarios": ""}, {"id": 237, "titulo": "El amor en los tiempos del cólera", "autor": "García Márquez, Gabriel", "editorial": "", "anio": 2014, "formato": "Biblioteca", "comentarios": ""}, {"id": 238, "titulo": "Cuándo me muera quiero que me toquen cumbia", "autor": "Alarcón, Cristian", "editorial": "Aguilar 2012", "anio": 2014, "formato": "Préstamo", "comentarios": "Gabi"}, {"id": 240, "titulo": "Manual de los perderores", "autor": "Sasturain, Juan", "editorial": "Sudamericana", "anio": 2015, "formato": "Biblioteca", "comentarios": ""}, {"id": 241, "titulo": "La fiesta del chivo", "autor": "Vargas Llosa, Mario", "editorial": "Alfaguara", "anio": 2015, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 242, "titulo": "El tiempo entre costuras", "autor": "Dueñas, María", "editorial": "Booket", "anio": 2015, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 243, "titulo": "Verano del 42", "autor": "Racher, Herman", "editorial": "Biblioteca Grandes Éxitos", "anio": 2015, "formato": "Préstamo", "comentarios": "Mamá"}, {"id": 244, "titulo": "El guardián entre el centeno", "autor": "Salinger, J.D", "editorial": "Edhasa", "anio": 2015, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 245, "titulo": "A sangre fría", "autor": "Capote, Truman", "editorial": "Clarín", "anio": 2015, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 246, "titulo": "El país de las mujeres", "autor": "Belli, Gioconda", "editorial": "Booket 2014", "anio": 2015, "formato": "Préstamo", "comentarios": "Lu"}, {"id": 247, "titulo": "Misteriosa Buenos Aires", "autor": "Mujica Lainez, Manuel", "editorial": "Seix Barral", "anio": 2015, "formato": "Biblioteca", "comentarios": ""}, {"id": 248, "titulo": "Doña Flor y sus dos maridos", "autor": "Amado, Jorge", "editorial": "RBA 1985", "anio": 2015, "formato": "Biblioteca", "comentarios": ""}, {"id": 249, "titulo": "El corazón helado", "autor": "Grandes, Almudena", "editorial": "TusQuets", "anio": 2015, "formato": "Biblioteca", "comentarios": ""}, {"id": 250, "titulo": "La tía Julia y el escribidor", "autor": "Vargas Llosa, Mario", "editorial": "Seix Barral 1986", "anio": 2015, "formato": "Biblioteca", "comentarios": ""}, {"id": 251, "titulo": "Usted no me lo va a creer", "autor": "Fontanarrosa, Roberto", "editorial": "Ediciones de la Flor", "anio": 2015, "formato": "Biblioteca", "comentarios": ""}, {"id": 252, "titulo": "El reino de éste mundo", "autor": "Carpentier, Alejo", "editorial": "", "anio": 2015, "formato": "Biblioteca", "comentarios": ""}, {"id": 253, "titulo": "Gabriela, clavo y canela", "autor": "Amado, Jorge", "editorial": "Seix Barral", "anio": 2015, "formato": "Biblioteca", "comentarios": ""}, {"id": 254, "titulo": "Sultana", "autor": "Sasson, Jean P.", "editorial": "Libro express 1996", "anio": 2015, "formato": "Préstamo", "comentarios": "Mamá"}, {"id": 255, "titulo": "Las 3 bodas de Manolita", "autor": "Grandes, Almudena", "editorial": "TusQuets", "anio": 2015, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 256, "titulo": "El hilito", "autor": "Balestra, Florencia", "editorial": "La marca terrible! 2014", "anio": 2015, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 258, "titulo": "Rayuela", "autor": "Cortázar, Julio", "editorial": "Sudamericana", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 259, "titulo": "Las años con Laura Díaz", "autor": "Fuentes, Carlos", "editorial": "Punto de lectura", "anio": 2016, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 260, "titulo": "La Templanza", "autor": "Dueñas, María", "editorial": "Planeta 2015", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 261, "titulo": "Los pilares de la tierra", "autor": "Follett, Ken", "editorial": "DeBolsillo 2012", "anio": 2016, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 262, "titulo": "Gringo Viejo", "autor": "Fuentes, Carlos", "editorial": "Alfaguara 2008", "anio": 2016, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 263, "titulo": "Los jefes", "autor": "Vargas Llosa, Mario", "editorial": "Seix Barral 1974 (6ta ed)", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 264, "titulo": "La muerte de Iván Ilich", "autor": "Tolstoi, León", "editorial": "", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 265, "titulo": "El umbral de la eternidad", "autor": "Follett, Ken", "editorial": "Plaza Janes 2014", "anio": 2016, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 266, "titulo": "Son de Mar", "autor": "Vicent Manuel", "editorial": "Punto de lectura 1999", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 267, "titulo": "El fin de semana", "autor": "Schlink, Bernhard", "editorial": "Anagrama 2011", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 268, "titulo": "Los besos en el pan", "autor": "Grandes, Almudena", "editorial": "Tusquets (ver año)", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 269, "titulo": "Pride and prejudice", "autor": "Austen, Jane", "editorial": "The Penguin English Library 1979", "anio": 2016, "formato": "Préstamo", "comentarios": "Lau Poli"}, {"id": 270, "titulo": "Iván el Terrible", "autor": "Tolstoi, Alexis", "editorial": "Juarez Editor S.A (1969)", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 271, "titulo": "Cinco esquinas", "autor": "Vargas Llosa, Mario", "editorial": "Alfaguara 2016", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 272, "titulo": "Hombres buenos", "autor": "Pérez- Reverte Arturo", "editorial": "Alfaguara 2015", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 273, "titulo": "Cacao", "autor": "Amado, Jorge", "editorial": "Alianza Editorial 1988", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 274, "titulo": "Mamá", "autor": "Fernández Díaz, Jorge", "editorial": "Sudamericana 2015 (edición especial)", "anio": 2016, "formato": "Biblioteca", "comentarios": ""}, {"id": 276, "titulo": "El asedio", "autor": "Pérez- Reverte, Arturo", "editorial": "Alfaguara 2010", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 277, "titulo": "Las conversaciones", "autor": "Aira, César", "editorial": "Beatriz Viterbo Editora (2008)", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 278, "titulo": "El puente de los asesinos", "autor": "Pérez- Reverte, Arturo", "editorial": "Prisa Ediciones (2013)", "anio": 2017, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 279, "titulo": "La abadía de Northanger", "autor": "Jane Austen", "editorial": "Acme Agency S.R. Lda (1946)", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 280, "titulo": "El último tango de Salvador Allende", "autor": "Ampuero Roberto", "editorial": "Sudamericana (2012)", "anio": 2017, "formato": "Biblioteca", "comentarios": "Buenísimo"}, {"id": 281, "titulo": "Los pichiciegos", "autor": "Fogwill, Rodolfo", "editorial": "Interzona (2012)", "anio": 2017, "formato": "Biblioteca", "comentarios": "Me encantó. Muy fuerte"}, {"id": 282, "titulo": "Oliver Twist", "autor": "Dickens, Charles", "editorial": "Latis Doss (Longman Group Limited) (1977)", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 283, "titulo": "Sobre héroes y tumbas", "autor": "Sábato, Ernesto", "editorial": "Biblioteca Argentina la Nación (2001)", "anio": 2017, "formato": "Biblioteca", "comentarios": "Me encantó"}, {"id": 284, "titulo": "Ana Karenina", "autor": "Tolstoi, León", "editorial": "Ediciones Continente 2015", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 285, "titulo": "El código Da Vinci", "autor": "Brown, Dan", "editorial": "Umbriel  2003", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 286, "titulo": "Persuación", "autor": "Austen, Jane", "editorial": "Espasa- Calpe Argentina, S.A 1948", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 287, "titulo": "Los tres mosqueteros (tomo I)", "autor": "Dumas, Alexander", "editorial": "Alianza Editorial 1980", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 288, "titulo": "El país bajo mi piel. (Memorias de amor y guerra)", "autor": "Belli, Gioconda", "editorial": "Booket 2010", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 289, "titulo": "Una mujer difícil", "autor": "Irving, John", "editorial": "Tusquets Editores 1999", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 290, "titulo": "Madame Bovary", "autor": "Flaubert, Gustavo", "editorial": "Editorial de ediciones selectas SRL 1965", "anio": 2017, "formato": "Biblioteca", "comentarios": ""}, {"id": 291, "titulo": "El hombre que amaba a los perros", "autor": "Padura, Leonardo", "editorial": "Maxi Tusquets editores (2016)", "anio": 2017, "formato": "Préstamo", "comentarios": "Vale"}, {"id": 293, "titulo": "Economía Feminista", "autor": "D'alessandro, Mercedes", "editorial": "Sudamericana (2017)", "anio": 2018, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 294, "titulo": "Los pacientes del doctor García", "autor": "Grandes, Almudena", "editorial": "Tusquets Editores (2017)", "anio": 2018, "formato": "Préstamo", "comentarios": "Abuelo"}, {"id": 295, "titulo": "A cuántos hay que matar", "autor": "Sietecase, Reynaldo", "editorial": "Punto de lectura (2014)", "anio": 2018, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 296, "titulo": "El cuento de la criada", "autor": "Atwood, Margaret", "editorial": "Narrativa Salamandra (2017)", "anio": 2018, "formato": "Biblioteca", "comentarios": ""}, {"id": 297, "titulo": "Putita golosa (por un feminismo del goce)", "autor": "Peker, Luciana", "editorial": "Galerna (2018)", "anio": 2018, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 298, "titulo": "Ladrilleros", "autor": "Almada, Selva", "editorial": "Mardulce (2013)", "anio": 2018, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 299, "titulo": "Alto Riesgo", "autor": "Follett, Ken", "editorial": "", "anio": 2018, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 300, "titulo": "Un cuarto propio", "autor": "Woolf, Virginia", "editorial": "El cuenco de plata (2018)", "anio": 2018, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 301, "titulo": "Teoría King Kong", "autor": "Despentes, Virginie", "editorial": "Melusina (2008)", "anio": 2018, "formato": "PDF", "comentarios": "Tamara Tenenbaum"}, {"id": 302, "titulo": "Que la ciencia te acompañe (a luchar por tus derechos)", "autor": "Mileo, Agostina", "editorial": "Debate (2018)", "anio": 2018, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 303, "titulo": "El viento que arrasa", "autor": "Almada, Selva", "editorial": "Mardulce (2017)", "anio": 2018, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 304, "titulo": "Poliamor", "autor": "Alarcón, Wiener, etc", "editorial": "", "anio": 2018, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 306, "titulo": "La flor púrpura", "autor": "Chimamanda Ngozi Adichie", "editorial": "Penguin Random House (2018)", "anio": 2019, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 307, "titulo": "Por qué volvías cada verano", "autor": "Lopez Peiró, Belén", "editorial": "Madreselva", "anio": 2019, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 308, "titulo": "La virgen Cabeza", "autor": "Cabezón Cámara, Gabriela", "editorial": "Eterna Cadencia (2018)", "anio": 2019, "formato": "Biblioteca", "comentarios": ""}, {"id": 309, "titulo": "Las aventuras de la China Iron", "autor": "Cabezón Cámara, Gabriela", "editorial": "Random House (2018)", "anio": 2019, "formato": "Biblioteca", "comentarios": ""}, {"id": 310, "titulo": "La final de nuestras vidas", "autor": "Burgo, Andrés", "editorial": "Planeta (2019)", "anio": 2019, "formato": "Préstamo", "comentarios": "Hernán"}, {"id": 311, "titulo": "La semilla de la Bruja", "autor": "Atwood, Margaret", "editorial": "Lumen (2018)", "anio": 2019, "formato": "Biblioteca", "comentarios": ""}, {"id": 312, "titulo": "Algo alrededor de tu cuello", "autor": "Chimamanda Ngozi Adichie", "editorial": "", "anio": 2019, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 313, "titulo": "El fin del amor: Querer y coger", "autor": "Tenenbaum, Tamara", "editorial": "", "anio": 2019, "formato": "Lo tengo en papel", "comentarios": "Se lo presté a barbi"}, {"id": 314, "titulo": "Las hijas del capitán", "autor": "Dueñas, María", "editorial": "Planeta (2018)", "anio": 2019, "formato": "Biblioteca", "comentarios": ""}, {"id": 315, "titulo": "Misión olvido", "autor": "Dueñas, María", "editorial": "Planeta (2016)", "anio": 2019, "formato": "Biblioteca", "comentarios": ""}, {"id": 316, "titulo": "Chicas Muertas", "autor": "Almada, Selva", "editorial": "Literatura Random House ()", "anio": 2019, "formato": "Biblioteca", "comentarios": ""}, {"id": 317, "titulo": "1963-11-22 00:00:00", "autor": "King, Stephen", "editorial": "Plaza & Janes", "anio": 2019, "formato": "Biblioteca", "comentarios": ""}, {"id": 318, "titulo": "El que no salta es un holandés", "autor": "Méndez, Mario", "editorial": "", "anio": 2019, "formato": "Préstamo", "comentarios": "Mamá"}, {"id": 319, "titulo": "La mujer Descalza", "autor": "Scholastique, Mukasonga", "editorial": "", "anio": 2019, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 321, "titulo": "Harry Potter y la Piedra Filosofal", "autor": "J.K Rowling", "editorial": "Salamandra (2010) (Letras de Bolsillo)", "anio": 2020, "formato": "Préstamo - Renzo Belvedere", "comentarios": ""}, {"id": 322, "titulo": "Harry Potter y la Cámara Secreta", "autor": "J.K Rowling", "editorial": "Salamandra (2013) (Letras de Bolsillo)", "anio": 2020, "formato": "Préstamo - Renzo Belvedere", "comentarios": ""}, {"id": 323, "titulo": "Harry Potter y el Prisionero de Azkaban", "autor": "J.K Rowling", "editorial": "Salamandra (2013) (Letras de Bolsillo)", "anio": 2020, "formato": "Préstamo - Renzo Belvedere", "comentarios": ""}, {"id": 324, "titulo": "Harry Potter y el Cáliz de Fuego", "autor": "J.K Rowling", "editorial": "Salamandra (2001)", "anio": 2020, "formato": "Préstamo - Renzo Belvedere", "comentarios": ""}, {"id": 325, "titulo": "Harry Potter y la Orden del Fénix", "autor": "J.K Rowling", "editorial": "Salamandra (2004)", "anio": 2020, "formato": "Préstamo - Renzo Belvedere", "comentarios": ""}, {"id": 326, "titulo": "Harry Potter y el Misterio del Príncipe", "autor": "J.K Rowling", "editorial": "Salamandra (2006)", "anio": 2020, "formato": "Préstamo - Renzo Belvedere", "comentarios": ""}, {"id": 327, "titulo": "Harry Potter y las Reliquias de la Muerte", "autor": "J.K Rowling", "editorial": "Titivillus (2017)", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 328, "titulo": "Malena es un nombre de tango", "autor": "Grandes, Almudena", "editorial": "Epub Libre (2019)", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 329, "titulo": "Llámame por tu nombre", "autor": "Aciman, André", "editorial": "Sebastián Arena (2018) epublibre", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 330, "titulo": "El ascenso de Kyoshi", "autor": "Michael Dante DiMartino", "editorial": "Amulet Books (2019)", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 331, "titulo": "Americanah", "autor": "Chimamanda Ngozi Adichie", "editorial": "Literatura Random House (2019)", "anio": 2020, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 332, "titulo": "La matanza del Rechnitz", "autor": "Batthyany, Sacha", "editorial": "", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 333, "titulo": "¿Por qué funciona el populismo?", "autor": "Casullo, María Esperanza", "editorial": "Siglo XXI (2019)", "anio": 2020, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 334, "titulo": "Cementerio de Animales", "autor": "King, Stephen", "editorial": "", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 335, "titulo": "Quidditch a través de los tiempos", "autor": "J.K Rowling", "editorial": "", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 336, "titulo": "Animales fantásticos y dónde encontrarlos", "autor": "J.K Rowling", "editorial": "", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 337, "titulo": "Grandes Pintores, Kahlo", "autor": "Carrére Juan, Lardiez Mariano", "editorial": "Editorial Amereida S.A. (2013)", "anio": 2020, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 338, "titulo": "El Hobbit", "autor": "J.R.R Tolkien", "editorial": "", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 339, "titulo": "Harry Potter y el Legado Maldito", "autor": "J.K Rowling", "editorial": "", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 340, "titulo": "Las crónicas de Narnia, el sobrino del mago", "autor": "Lewis, C. S.", "editorial": "", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 341, "titulo": "Siempre empuja todo", "autor": "Salvador Biedma", "editorial": "Eterna Cadencia (2018)", "anio": 2020, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 342, "titulo": "La mujer en cuestión", "autor": "Andruetto, María Teresa", "editorial": "Literatura Random House (2019)", "anio": 2020, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 343, "titulo": "Las Marrapodi", "autor": "Berjman, Mónica", "editorial": "Modesto Rimba", "anio": 2020, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 344, "titulo": "Operación Masacre", "autor": "Walsh, Rodolfo", "editorial": "Ediciones de la Flor", "anio": 2020, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 345, "titulo": "Acerca de Roderer", "autor": "Martínez, Guillermo", "editorial": "Booket, 2015", "anio": 2020, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 346, "titulo": "Fidel Castro. Biografía a dos voces", "autor": "Ramonet, Ignacio", "editorial": "Debate, 2007", "anio": 2020, "formato": "Préstamo - Valeria Vizzón", "comentarios": ""}, {"id": 347, "titulo": "El nombre del mundo es Bosque", "autor": "Leguin, Úrsula K.", "editorial": "", "anio": 2020, "formato": "Kindle", "comentarios": ""}, {"id": 348, "titulo": "Zazie en el Metro", "autor": "Queneau, Raymond", "editorial": "Ediciones Godot, 2020", "anio": 2020, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 349, "titulo": "Aramburu", "autor": "O'donnell, María", "editorial": "Editorial Planeta, 2020", "anio": 2020, "formato": "Préstamo - Abuelo", "comentarios": ""}, {"id": 350, "titulo": "Cien palomas muertas", "autor": "Saidler, Elida", "editorial": "Editorial Conejo, 2019", "anio": 2020, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 352, "titulo": "Desierto Sonoro", "autor": "Luiselli, Valeria", "editorial": "Sigilo, 2019", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 353, "titulo": "El curioso incidente del perro a medianoche", "autor": "Haddon, Mark", "editorial": "Letras de Bolsillo, 2019", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 354, "titulo": "Cometierra", "autor": "Reyes, Dolores", "editorial": "Sigilo, 2020", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 355, "titulo": "Normal People", "autor": "Rooney, Sally", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 356, "titulo": "Las Malas", "autor": "Sosa Villada, Camila", "editorial": "Tusquets, 2019", "anio": 2021, "formato": "Préstamo - Valeria Vizzón", "comentarios": ""}, {"id": 357, "titulo": "Furia Diamante", "autor": "Tentoni, Valeria", "editorial": "Leteo, 2019", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 358, "titulo": "Años de Gracia", "autor": "Martoccia María", "editorial": "Tusquets, 2016", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 359, "titulo": "Bajo este sol tremendo", "autor": "Busqued Carlos", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 360, "titulo": "La nieta del señor Linh", "autor": "Claudel Philippe", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 361, "titulo": "Salvatierra", "autor": "Mairal Pedro", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 362, "titulo": "La analfabeta", "autor": "Kristóf Ágota", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 363, "titulo": "Bonsai", "autor": "Zambra Alejandro", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 364, "titulo": "Seda", "autor": "Baricco, Alessandro", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 365, "titulo": "Un cuento perfecto", "autor": "Benavent, Elisabet", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 366, "titulo": "Open", "autor": "André Agassi", "editorial": "Duomo Ediciones, 2019", "anio": 2021, "formato": "Préstamo - Analía Vizzón", "comentarios": ""}, {"id": 367, "titulo": "La guerra civil", "autor": "Jeanmaire, Federico", "editorial": "Seix Barral, 2014", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 368, "titulo": "La tensión del umbral", "autor": "Almeida, Eugenia", "editorial": "Novela Edhasa, 2021", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 369, "titulo": "Todas nuestras maldiciones se cumplieron", "autor": "Tenenbaum, Tamara", "editorial": "Emecé, 2021", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 370, "titulo": "Jefazo. Evo Morales", "autor": "Sivak, Martín", "editorial": "Debate, 2008", "anio": 2021, "formato": "Préstamo - Valeria Vizzón", "comentarios": ""}, {"id": 371, "titulo": "Baltasar contra el olvido", "autor": "Koch, Mauricio", "editorial": "Obloshka Novela 2020", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 372, "titulo": "La ridícula idea de no volver a verte", "autor": "Montero, Rosa", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 373, "titulo": "Amy y Roger", "autor": "Matson, Morgan", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 374, "titulo": "Piedra, papel o tijera", "autor": "Garland, Inés", "editorial": "Lo que leo (Santillana), 2021", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": "Club de lectura"}, {"id": 375, "titulo": "La isla bajo el mar", "autor": "Allende, Isabel", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 376, "titulo": "Las señoritas de escasos medios", "autor": "Spark, Muriel", "editorial": "", "anio": 2021, "formato": "Kindle", "comentarios": ""}, {"id": 377, "titulo": "Calibre.45", "autor": "Malharro, Martín Arturo", "editorial": "", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 378, "titulo": "Distancia de Rescate", "autor": "Schweblin, Samanta", "editorial": "", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 379, "titulo": "Un beso de Dick", "autor": "Molano Vargas, Fernando", "editorial": "", "anio": 2021, "formato": "Google Libros", "comentarios": ""}, {"id": 380, "titulo": "La aventura de un fotógrafo en La Plata", "autor": "Bioy Casares, Adolfo", "editorial": "", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 381, "titulo": "Pese lo que Pese", "autor": "Giménez, Paula y Lavia, Jesica", "editorial": "", "anio": 2021, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 383, "titulo": "El libro del verano", "autor": "Tove Jansson", "editorial": "Cía. Naviera Ilimitada (2020)", "anio": 2022, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 384, "titulo": "Romeo y Julieta", "autor": "Shakespeare, William", "editorial": "Aguilar, 1965 (Obras Completas)", "anio": 2022, "formato": "Préstamo - Abuelo", "comentarios": ""}, {"id": 385, "titulo": "La doma de la fiera", "autor": "Shakespeare, William", "editorial": "Aguilar, 1965 (Obras Completas)", "anio": 2022, "formato": "Préstamo - Abuelo", "comentarios": ""}, {"id": 386, "titulo": "Tiempos recios", "autor": "Vargas Llosa, Mario", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 387, "titulo": "Estación Once", "autor": "St. John Mandel, Emily", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 388, "titulo": "La Amiga Estupenda", "autor": "Ferrante, Elena", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 389, "titulo": "Un mal nombre", "autor": "Ferrante, Elena", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 390, "titulo": "Las deudas del cuerpo", "autor": "Ferrante, Elena", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 391, "titulo": "La niña perdida", "autor": "Ferrante, Elena", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 392, "titulo": "Van Gogh", "autor": "", "editorial": "", "anio": 2022, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 393, "titulo": "Rojo, blanco y sangre azul", "autor": "McQuiston, Casey", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 394, "titulo": "Stefano", "autor": "Andruetto, María Teresa", "editorial": "", "anio": 2022, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 395, "titulo": "Cosas pequeñas como esas", "autor": "Keegan, Claire", "editorial": "", "anio": 2022, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 396, "titulo": "El Duke y Yo", "autor": "Quinn, Julia", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 397, "titulo": "El Vizconde que me amó", "autor": "Quinn, Julia", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 398, "titulo": "An Offer From a Gentleman", "autor": "Quinn, Julia", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 399, "titulo": "Enamorando a Mister Bridgerton", "autor": "Quinn, Julia", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 400, "titulo": "A Sir Phillip, con amor", "autor": "Quinn, Julia", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 401, "titulo": "When He was Wicked", "autor": "Quinn, Julia", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 402, "titulo": "El colectivo", "autor": "Almeida, Eugenia", "editorial": "", "anio": 2022, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 403, "titulo": "Klickitat", "autor": "Rock, Peter", "editorial": "", "anio": 2022, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 404, "titulo": "Persuación", "autor": "Austen, Jane", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 405, "titulo": "Emma", "autor": "Austen, Jane", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 406, "titulo": "Los capitanes de la Arena", "autor": "Amado, Jorge", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 407, "titulo": "Un viaje a Salto", "autor": "Circe, Maia", "editorial": "Las Afueras, 2021", "anio": 2022, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 408, "titulo": "Sexo ATR: A todo ritmo", "autor": "Ce, Cecilia", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 409, "titulo": "Una muchacha muy bella", "autor": "López, Julián", "editorial": "Eterna Cadencia 2021", "anio": 2022, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 410, "titulo": "Boyfriend material", "autor": "", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 411, "titulo": "Las Primas", "autor": "Venturini, Aurora", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 412, "titulo": "El nombre de la Rosa", "autor": "Eco, Umberto", "editorial": "", "anio": 2022, "formato": "Kindle", "comentarios": ""}, {"id": 413, "titulo": "La Desobediente", "autor": "Bombara, Paula", "editorial": "", "anio": 2022, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 414, "titulo": "El ojo de Goliat", "autor": "Muzzio, Diego", "editorial": "", "anio": 2022, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 415, "titulo": "¿Y si no es suficiente?", "autor": "Debowicz, Maia", "editorial": "", "anio": 2022, "formato": "Préstamo - Vale", "comentarios": ""}, {"id": 417, "titulo": "Ofendiditos", "autor": "Lijtmaer, Lucía", "editorial": "Anagrama, 2021", "anio": 2023, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 418, "titulo": "La verdad sobre el caso Harry Quebert", "autor": "Dicker, Joel", "editorial": "", "anio": 2023, "formato": "Préstamo - Mama", "comentarios": ""}, {"id": 419, "titulo": "Vida de Guastavino y Guastavino", "autor": "Barba, Andrés", "editorial": "", "anio": 2023, "formato": "Lo tengo en papel", "comentarios": "Club de Lectura"}, {"id": 420, "titulo": "Otoño Alemán", "autor": "Villanueva, Liliana", "editorial": "", "anio": 2023, "formato": "Kindle", "comentarios": ""}, {"id": 421, "titulo": "La hija ejemplar", "autor": "Axat, Federico", "editorial": "", "anio": 2023, "formato": "Kindle", "comentarios": ""}, {"id": 422, "titulo": "El Musgo en las Ruinas", "autor": "Rivera Donoso, Paula", "editorial": "Autoedición, 2018", "anio": 2023, "formato": "Kindle", "comentarios": ""}, {"id": 423, "titulo": "Negro Casi Azul", "autor": "Mariasch, Paula", "editorial": "", "anio": 2023, "formato": "Préstamo - Vale", "comentarios": ""}, {"id": 424, "titulo": "Parte de la Felicidad", "autor": "Gil, Dolores", "editorial": "", "anio": 2023, "formato": "Préstamo - Vale", "comentarios": ""}, {"id": 425, "titulo": "Doce pasos hacia mí", "autor": "Balbuena, Sofía", "editorial": "", "anio": 2023, "formato": "Préstamo - Vale", "comentarios": ""}, {"id": 426, "titulo": "La tercera", "autor": "Wall, Alejandro - Edul, Gastón", "editorial": "", "anio": 2023, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 427, "titulo": "A husband for Hartwell", "autor": "J. A. Rock, Lisa Henry", "editorial": "", "anio": 2023, "formato": "Kindle", "comentarios": ""}, {"id": 428, "titulo": "The man who loved Cole Flores", "autor": "K. A. Merikan", "editorial": "", "anio": 2023, "formato": "Kindle", "comentarios": ""}, {"id": 429, "titulo": "Miseria", "autor": "Reyes, Dolores", "editorial": "", "anio": 2023, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 430, "titulo": "El Diablo en el cuerpo", "autor": "Radiguet, Raymond", "editorial": "", "anio": 2023, "formato": "Kindle", "comentarios": ""}, {"id": 431, "titulo": "La interlengua", "autor": "Zwaig, Mónica", "editorial": "Blatt y Rios (2023)", "anio": 2023, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 432, "titulo": "Desmontar una casa", "autor": "Moscovich, Cecilia", "editorial": "Neutrinos (2021)", "anio": 2023, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 433, "titulo": "La magia de ser Sofía", "autor": "Benavent, Elísabet", "editorial": "", "anio": 2023, "formato": "Kindle", "comentarios": ""}, {"id": 434, "titulo": "Ni puedo, ni quiero", "autor": "Davis, Lydia", "editorial": "Eterna Cadencia (2022)", "anio": 2023, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 435, "titulo": "Las chicas malas no transpiran", "autor": "Cukierman, Laura", "editorial": "", "anio": 2023, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 436, "titulo": "Slippery Creatures", "autor": "Charles, KJ", "editorial": "", "anio": 2023, "formato": "Kindle", "comentarios": ""}, {"id": 437, "titulo": "Reina Roja", "autor": "Gómez Jurado, Juan", "editorial": "", "anio": 2023, "formato": "Kindle", "comentarios": ""}, {"id": 438, "titulo": "La paciente silenciosa", "autor": "Michaelides, Alex", "editorial": "", "anio": 2023, "formato": "Kindle", "comentarios": ""}, {"id": 439, "titulo": "El hechizo del verano", "autor": "Higa, Virginia", "editorial": "", "anio": 2023, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 441, "titulo": "Mile high", "autor": "Tomforde, Liz", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 442, "titulo": "The right move", "autor": "Tomforde, Liz", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 443, "titulo": "La hija del escultor", "autor": "Tove, Jansson", "editorial": "", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 444, "titulo": "Esta no soy yo", "autor": "Viola, Liliana", "editorial": "", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 445, "titulo": "El príncipe cautivo", "autor": "Pacat, C.S.", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 446, "titulo": "El juego del príncipe", "autor": "Pacat, C.S.", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 447, "titulo": "La rebelión del rey", "autor": "Pacat, C.S.", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 448, "titulo": "Me peleé a los gritos con el manager del spa", "autor": "Quevedo, Carla", "editorial": "", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 449, "titulo": "Eva: Alfa y Omega", "autor": "Venturini, Aurora", "editorial": "", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 450, "titulo": "Un chino en bicicleta", "autor": "Magnus, Ariel", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 451, "titulo": "Pantalones Azules", "autor": "Gallardo, Sara", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 452, "titulo": "El Feminismo", "autor": "Walsh, Maria Elena", "editorial": "Alfaguara (2024)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 453, "titulo": "Hush Hush", "autor": "Fitzpatrick, Becca", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 454, "titulo": "Una saga moscovita", "autor": "Aksyonov, Vasily", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": "3 tomos"}, {"id": 455, "titulo": "Realismo Capitalista", "autor": "Fisher, Mark", "editorial": "Caja Negra (2023)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 456, "titulo": "La intimidad como espectáculo", "autor": "Sibila, Paula", "editorial": "Fondo de Cultura Económica (2017)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 457, "titulo": "The man who hated Ned O'leary", "autor": "KA Merikan", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 458, "titulo": "Peronismo para la Juventud", "autor": "Incaminato, Natalí", "editorial": "Paidós (2021)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 459, "titulo": "Bibliotecas", "autor": "Adaui, Katya", "editorial": "Ediciones Godot (2023)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 460, "titulo": "La segunda venida de Hilda Bustamante", "autor": "Esper, Salomé", "editorial": "Sigilo 2024", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 461, "titulo": "Colegiala", "autor": "Dazai, Osamu", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 462, "titulo": "Rarezas Geográficas", "autor": "Marchon, Olivier", "editorial": "Ediciones Godot (2023)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 463, "titulo": "Una partida de ajedrez", "autor": "Zweig, Stefan", "editorial": "Ediciones Godot (2021)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 464, "titulo": "Que pase algo pronto", "autor": "Espasandin, Agustina", "editorial": "Sigilo", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 465, "titulo": "Intimidades congeladas", "autor": "Illouz, Eva", "editorial": "Katz Editores (2012)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 466, "titulo": "Caballo de verano", "autor": "Ronsino, Hernán", "editorial": "Eterna Cadencia (2024)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 467, "titulo": "Volver a Pensar. Filosofía para desobedientes", "autor": "Balmaceda, Tomás", "editorial": "Galerna (2024)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 468, "titulo": "Djinns", "autor": "Sonko, Seynabou", "editorial": "Sigilo (2024)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 469, "titulo": "Lady Susan", "autor": "Austen, Jane", "editorial": "", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 470, "titulo": "Kryptonita", "autor": "Oyola, Leonardo", "editorial": "", "anio": 2024, "formato": "Kindle", "comentarios": ""}, {"id": 471, "titulo": "La vegetariana", "autor": "Han, Kang", "editorial": "Penguin Random House (2024)", "anio": 2024, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 473, "titulo": "El método Lean Startup", "autor": "Ries, Eric", "editorial": "Valetta Ediciones (2020)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 474, "titulo": "Poesía Nuclear", "autor": "La Piba Berreta", "editorial": "Elemento Disruptivo Editora (2022)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 475, "titulo": "Los aviones no se caen", "autor": "Savino, Eduardo", "editorial": "Elemento Disruptivo Editora (2020)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": "Me gustó mucho"}, {"id": 476, "titulo": "Una guía sobre el arte de perderse", "autor": "Solnit, Rebecca", "editorial": "Fiordo (2023)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 477, "titulo": "Los sorrentinos", "autor": "Higa, Virginia", "editorial": "Sigilo (2024)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": "Bellísimo"}, {"id": 478, "titulo": "No me gusta mi cuello", "autor": "Ephron, Nora", "editorial": "Asteroide", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 479, "titulo": "La generación ansiosa", "autor": "Haidt, Jonathan", "editorial": "Deusto (2024)", "anio": 2025, "formato": "Préstamo - Emi", "comentarios": ""}, {"id": 480, "titulo": "Ruth", "autor": "Riva, Adriana", "editorial": "Seix Barral (2025)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 481, "titulo": "Tres Truenos", "autor": "Closs, Marina", "editorial": "Bajo la luna (2022)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 482, "titulo": "Asesinato en el honjin y otros relatos", "autor": "Yokomizo, Seishi", "editorial": "-", "anio": 2025, "formato": "Kindle", "comentarios": ""}, {"id": 483, "titulo": "Los reyes de la casa", "autor": "De Vigan, Delphine", "editorial": "-", "anio": 2025, "formato": "Kindle", "comentarios": ""}, {"id": 484, "titulo": "La turista", "autor": "Yun Ko-eun", "editorial": "-", "anio": 2025, "formato": "Kindle", "comentarios": ""}, {"id": 485, "titulo": "Alas de Sangre", "autor": "Yarros, Rebecca", "editorial": "-", "anio": 2025, "formato": "Kindle", "comentarios": ""}, {"id": 486, "titulo": "Los amnésicos: Historia de una familia europea", "autor": "Schwartz, Geraldine", "editorial": "Tusquets editores (2024)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 487, "titulo": "Alas de hierro", "autor": "Yarros, Rebecca", "editorial": "", "anio": 2025, "formato": "Kindle", "comentarios": ""}, {"id": 488, "titulo": "Gestión por procesos y riesgo operacional", "autor": "José Manuel Pardo Álvarez", "editorial": "", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 489, "titulo": "Yo me lo merezco", "autor": "Sibilia, Paula", "editorial": "Taurus (2024)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 490, "titulo": "Los trenes no duermen", "autor": "Fernández, Adrian Marcelo", "editorial": "Editorial Sudestada (2023)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 491, "titulo": "La ciudad de las ranas", "autor": "Alconada Mon, Hugo", "editorial": "Planeta (2023)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": "No me gustó pero buena bibliografía"}, {"id": 492, "titulo": "El lugar", "autor": "Ernaux, Annie", "editorial": "Tusquets editores (2022)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 493, "titulo": "Dardo Rocha (Grandes Protagonistas de la Historia Argentina)", "autor": "Luna, Felix", "editorial": "Planeta (2001)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": "Heredado del papá de anto"}, {"id": 494, "titulo": "Alegría", "autor": "García Robayo, Margarita", "editorial": "Páginas de espuma (2024)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 495, "titulo": "Juana Azurduy (Grandes Protagonistas de la Historia Argentina)", "autor": "Luna, Felix", "editorial": "Planeta (2001)", "anio": 2025, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 497, "titulo": "Julio Argentino Roca (Grandes Protagonistas de la Historia Argentina)", "autor": "Luna, Felix", "editorial": "Planeta (2001)", "anio": 2026, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 498, "titulo": "Un gato", "autor": "Michaels, Leonard", "editorial": "Bikini Ninja (2025)", "anio": 2026, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 499, "titulo": "Calibán y la bruja", "autor": "Federici, Silvia", "editorial": "Tinta Limón (2025)", "anio": 2026, "formato": "Lo tengo en papel", "comentarios": "Un antes y un después"}, {"id": 500, "titulo": "Juego limpio", "autor": "Jansson, Tove", "editorial": "Compañía Naviera Ilimitada (2021)", "anio": 2026, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 501, "titulo": "El lector", "autor": "Schlink, Bernhard", "editorial": "Anagrama (2023)", "anio": 2026, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 502, "titulo": "El año en que hablamos con el mar", "autor": "Montero, Andrés", "editorial": "La pollera (2025)", "anio": 2026, "formato": "Lo tengo en papel", "comentarios": "Hermoso, algo nuevo. Como las primas"}, {"id": 503, "titulo": "Tony Ninguno", "autor": "Montero, Andrés", "editorial": "", "anio": 2026, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 504, "titulo": "La vida por delante", "autor": "Etchebarne, Magalí", "editorial": "", "anio": 2026, "formato": "Kindle", "comentarios": ""}, {"id": 505, "titulo": "Clara y Confusa", "autor": "Rimsky, Cynthia", "editorial": "", "anio": 2026, "formato": "Kindle", "comentarios": ""}, {"id": 506, "titulo": "Patria", "autor": "Aramburu, Fernando", "editorial": "Tusquets (2025)", "anio": 2026, "formato": "Lo tengo en papel", "comentarios": ""}, {"id": 507, "titulo": "Instrucción de novicias", "autor": "Ana Garriga y Carmen Orbita", "editorial": "", "anio": 2026, "formato": "Lo tengo en papel", "comentarios": ""}];
+const INITIAL_WISH  = [{"id": 1, "titulo": "Operación Masacre", "autor": "Rodolfo Walsh", "editorial": "", "comentario": ""}, {"id": 2, "titulo": "El Secreto de los Born", "autor": "Maria O'donnell", "editorial": "", "comentario": ""}, {"id": 3, "titulo": "Aramburu", "autor": "Maria O'donnell", "editorial": "Planeta de Libros", "comentario": ""}, {"id": 4, "titulo": "La voluntad", "autor": "Eduardo Anguita, Martín Caparrós", "editorial": "", "comentario": ""}, {"id": 1000, "titulo": "Los pichiciegos", "autor": "Fogwill", "editorial": "", "comentario": ""}, {"id": 1001, "titulo": "Vivir afuera", "autor": "Fogwill", "editorial": "", "comentario": ""}, {"id": 1002, "titulo": "Cinco esquinas", "autor": "Vargas Llosa", "editorial": "", "comentario": ""}, {"id": 1003, "titulo": "Hombres buenos", "autor": "Pérez Reverte", "editorial": "", "comentario": ""}, {"id": 1004, "titulo": "Aurora Boreal", "autor": "Asa Larsson", "editorial": "", "comentario": ""}, {"id": 1005, "titulo": "Bahía de los misterios", "autor": "Ampuero", "editorial": "", "comentario": ""}, {"id": 1006, "titulo": "El último tango de salvador Allende", "autor": "Ampuero", "editorial": "", "comentario": ""}, {"id": 1007, "titulo": "La abadía de Northanger", "autor": "", "editorial": "", "comentario": ""}, {"id": 1008, "titulo": "Oliver Twist", "autor": "", "editorial": "", "comentario": ""}, {"id": 1009, "titulo": "Cacao", "autor": "Jorge Amado", "editorial": "", "comentario": ""}, {"id": 1010, "titulo": "Sudor", "autor": "Jorge Amado", "editorial": "", "comentario": ""}, {"id": 1011, "titulo": "Los tres mosqueteros", "autor": "", "editorial": "", "comentario": "Leí el primer tomo"}, {"id": 1012, "titulo": "Libros de mujeres que recomienda Reverte", "autor": "Autores que recomienda", "editorial": "", "comentario": ""}, {"id": 1013, "titulo": "Diserée", "autor": "Virginia Woolf", "editorial": "", "comentario": ""}, {"id": 1014, "titulo": "Julia Clary", "autor": "Patricia Highsmith", "editorial": "", "comentario": ""}, {"id": 1015, "titulo": "Paulina Bonaparte", "autor": "Carson McCullers", "editorial": "", "comentario": ""}, {"id": 1016, "titulo": "Vida de la emperatriz josefina", "autor": "", "editorial": "", "comentario": ""}, {"id": 1017, "titulo": "Un invierno en Mallorca", "autor": "", "editorial": "", "comentario": ""}, {"id": 1018, "titulo": "Diez años de destierro", "autor": "", "editorial": "", "comentario": ""}, {"id": 1019, "titulo": "Cautiverio", "autor": "Chantal Keraudren", "editorial": "", "comentario": ""}, {"id": 1020, "titulo": "Muerte de María Antonieta", "autor": "", "editorial": "", "comentario": ""}, {"id": 1021, "titulo": "El húsar", "autor": "Pérez Reverte", "editorial": "", "comentario": ""}, {"id": 1022, "titulo": "La reina del sur", "autor": "Pérez Reverte", "editorial": "", "comentario": ""}, {"id": 1023, "titulo": "La guerra civil contada a los jóvenes", "autor": "Pérez Reverte", "editorial": "", "comentario": ""}, {"id": 1024, "titulo": "El capitán alatriste", "autor": "Pérez Reverte", "editorial": "", "comentario": ""}, {"id": 1025, "titulo": "Territorio comanche", "autor": "Pérez Reverte", "editorial": "", "comentario": ""}, {"id": 1026, "titulo": "El asedio", "autor": "Pérez Reverte", "editorial": "", "comentario": ""}, {"id": 1027, "titulo": "Noventa y tres", "autor": "Victor Hugo", "editorial": "", "comentario": ""}];
+
+let books = [], wishes = [], chart = null;
+
+// ── STORAGE LOCAL ─────────────────────────────────────────────────────────────
+function loadLocal() {
+  try {
+    const b = localStorage.getItem(LS_BOOKS);
+    const w = localStorage.getItem(LS_WISH);
+    books  = b ? JSON.parse(b) : INITIAL_BOOKS;
+    wishes = w ? JSON.parse(w) : INITIAL_WISH;
+  } catch(e) {
+    books  = INITIAL_BOOKS;
+    wishes = INITIAL_WISH;
+  }
+  if(!localStorage.getItem(LS_BOOKS)) saveLocal();
+}
+function saveLocal() {
+  localStorage.setItem(LS_BOOKS, JSON.stringify(books));
+  localStorage.setItem(LS_WISH,  JSON.stringify(wishes));
+}
+
+// ── AUTH UI ──────────────────────────────────────────────────────────────────
+function toggleAuth() {
+  const lbl = document.getElementById('auth-label').textContent;
+  if(lbl.startsWith('✓') || lbl === 'Conectado') {
+    window._fbSignOut && window._fbSignOut();
+  } else {
+    window._fbSignIn && window._fbSignIn();
+  }
+}
+
+function setAuthUI(connected, name) {
+  const btn = document.getElementById('auth-btn');
+  const lbl = document.getElementById('auth-label');
+  if(connected) {
+    btn.classList.add('connected');
+    lbl.textContent = name ? '✓ ' + name.split(' ')[0] : 'Conectado';
+  } else {
+    btn.classList.remove('connected');
+    lbl.textContent = 'Conectar con Google';
+  }
+}
+
+// ── SYNC UI ───────────────────────────────────────────────────────────────────
+function setSyncing(m) {
+  const bar = document.getElementById('sync-bar');
+  bar.className = 'sync-bar syncing';
+  document.getElementById('sync-msg').textContent = m;
+}
+function setSyncOk(m) {
+  const bar = document.getElementById('sync-bar');
+  bar.className = 'sync-bar ok';
+  document.getElementById('sync-msg').textContent = m;
+}
+function setSyncErr(m) {
+  const bar = document.getElementById('sync-bar');
+  bar.className = 'sync-bar err';
+  document.getElementById('sync-msg').textContent = m;
+}
+function setSyncMsg(m) {
+  const bar = document.getElementById('sync-bar');
+  bar.className = 'sync-bar';
+  document.getElementById('sync-msg').textContent = m;
+}
+
+// ── SAVE (local + nube) ───────────────────────────────────────────────────────
+let _saveTimer = null;
+async function save() {
+  saveLocal();
+  if(window._fbSave) {
+    clearTimeout(_saveTimer);
+    setSyncing('Guardando en la nube...');
+    _saveTimer = setTimeout(async () => {
+      await window._fbSave({ books, wishes });
+      setSyncOk('☁ Guardado en la nube ✓');
+    }, 1500);
+  }
+}
+
+// ── TABS ─────────────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  btn.classList.add('active');
+  if(name==='stats') renderStats();
+  if(name==='favoritos') renderFavoritos();
+  if(name==='pilar') renderPilar();
+}
+
+// ── FAVORITOS ────────────────────────────────────────────────────────────────
+async function toggleFav(id, e) {
+  if(e) e.stopPropagation();
+  const b = books.find(x=>x.id===id); if(!b) return;
+  b.favorito = !b.favorito;
+  await save();
+  renderList();
+  renderFavoritos();
+  // actualizar modal si está abierto
+  const modalBg = document.getElementById('modal-bg');
+  if(modalBg.classList.contains('open')) openModal(id);
+}
+
+function renderFavoritos() {
+  const q = (document.getElementById('search-fav')||{value:''}).value.toLowerCase();
+  const favs = books.filter(b => b.favorito && (!q || b.titulo.toLowerCase().includes(q) || (b.autor||'').toLowerCase().includes(q)))
+    .sort((a,b)=>(b.anio||0)-(a.anio||0)||(b.id||0)-(a.id||0));
+  document.getElementById('count-fav').textContent = `${favs.length} favorito${favs.length!==1?'s':''}`;
+  const el = document.getElementById('fav-list');
+  if(!favs.length) { el.innerHTML='<div class="empty">⭐ Todavía no marcaste ningún favorito.</div>'; return; }
+  el.innerHTML = favs.map(b=>`
+    <div class="book-item" onclick="openModal(${b.id})">
+      <div style="flex:1;min-width:0">
+        <div class="book-title">${b.titulo}</div>
+        <div class="book-author">${b.autor||'<em>Sin autor</em>'}</div>
+      </div>
+      <div class="book-meta">
+        <button class="star-btn" onclick="toggleFav(${b.id},event)" title="Quitar de favoritos">⭐</button>
+        ${b.anio?`<span class="badge year">${b.anio}</span>`:''}
+      </div>
+    </div>`).join('');
+}
+
+function renderPilar() {
+  const q = (document.getElementById('search-pilar')||{value:''}).value.toLowerCase();
+  const ya = (document.getElementById('f-anio-pilar')||{value:''}).value;
+  const papel = books.filter(b => {
+    const esPapel = b.formato === 'Lo tengo en papel';
+    const mq = !q || b.titulo.toLowerCase().includes(q) || (b.autor||'').toLowerCase().includes(q);
+    const ma = !ya || String(b.anio)===ya;
+    return esPapel && mq && ma;
+  }).sort((a,b)=>(b.anio||0)-(a.anio||0)||(b.id||0)-(a.id||0));
+
+  // populate year filter
+  const sel = document.getElementById('f-anio-pilar');
+  if(sel) {
+    const aniosAll = [...new Set(books.filter(b=>b.formato==='Lo tengo en papel').map(b=>b.anio).filter(Boolean))].sort((a,b)=>b-a);
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Todos los años</option>';
+    aniosAll.forEach(a=>{ const o=document.createElement('option'); o.value=a; o.textContent=a; if(String(a)===cur) o.selected=true; sel.appendChild(o); });
+  }
+
+  document.getElementById('count-pilar').textContent = `${papel.length} libro${papel.length!==1?'s':''} en papel`;
+  const el = document.getElementById('pilar-list');
+  if(!papel.length) { el.innerHTML='<div class="empty">No se encontraron libros en papel.</div>'; return; }
+  el.innerHTML = papel.map(b=>`
+    <div class="book-item" onclick="openModal(${b.id})">
+      <div style="flex:1;min-width:0">
+        <div class="book-title">${b.titulo}</div>
+        <div class="book-author">${b.autor||'<em>Sin autor</em>'}</div>
+      </div>
+      <div class="book-meta">
+        <button class="star-btn" onclick="toggleFav(${b.id},event)" title="${b.favorito?'Quitar favorito':'Marcar favorito'}">${b.favorito?'⭐':'☆'}</button>
+        ${b.anio?`<span class="badge year">${b.anio}</span>`:''}
+      </div>
+    </div>`).join('');
+}
+
+// ── RENDER LIST ───────────────────────────────────────────────────────────────
+const MESES_NOMBRE = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+function populateFilters() {
+  const anios = [...new Set(books.map(b=>b.anio).filter(Boolean))].sort((a,b)=>b-a);
+  const sel = document.getElementById('f-anio');
+  sel.innerHTML = '<option value="">Todos los años</option>';
+  anios.forEach(a=>{ const o=document.createElement('option'); o.value=a; o.textContent=a; sel.appendChild(o); });
+  const fmts = [...new Set(books.map(b=>b.formato).filter(Boolean))].sort();
+  const sel2 = document.getElementById('f-fmt');
+  sel2.innerHTML = '<option value="">Todos los formatos</option>';
+  fmts.forEach(f=>{ const o=document.createElement('option'); o.value=f; o.textContent=f; sel2.appendChild(o); });
+}
+
+function renderList() {
+  const q   = document.getElementById('search').value.toLowerCase();
+  const ya  = document.getElementById('f-anio').value;
+  const yf  = document.getElementById('f-fmt').value;
+  const filtered = books.filter(b => {
+    const mq = !q  || b.titulo.toLowerCase().includes(q) || (b.autor||'').toLowerCase().includes(q);
+    const ma = !ya || String(b.anio)===ya;
+    const mf = !yf || b.formato===yf;
+    return mq && ma && mf;
+  }).sort((a,b) => (b.anio||0) - (a.anio||0) || (b.id||0) - (a.id||0));
+  document.getElementById('count').textContent = `${filtered.length} libro${filtered.length!==1?'s':''} encontrado${filtered.length!==1?'s':''}`;
+  const el = document.getElementById('book-list');
+  if(!filtered.length) { el.innerHTML='<div class="empty">No se encontraron libros</div>'; return; }
+  el.innerHTML = filtered.map(b=>`
+    <div class="book-item" onclick="openModal(${b.id})">
+      <div style="flex:1;min-width:0">
+        <div class="book-title">${b.titulo}</div>
+        <div class="book-author">${b.autor||'<em>Sin autor</em>'}</div>
+      </div>
+      <div class="book-meta">
+        <button class="star-btn" onclick="toggleFav(${b.id},event)" title="${b.favorito?'Quitar favorito':'Marcar favorito'}">${b.favorito?'⭐':'☆'}</button>
+        ${b.formato?`<span class="badge">${b.formato.length>14?b.formato.substring(0,14)+'…':b.formato}</span>`:''}
+        ${b.anio?`<span class="badge year">${b.anio}</span>`:''}
+      </div>
+    </div>`).join('');
+}
+
+function openModal(id) {
+  const b = books.find(x=>x.id===id); if(!b) return;
+  document.getElementById('modal-content').innerHTML = `
+    <div style="display:flex;align-items:flex-start;gap:10px;padding-right:28px;">
+      <h2 style="flex:1;margin:0;padding:0">${b.titulo}</h2>
+      <button class="star-btn" onclick="toggleFav(${b.id},event)" title="${b.favorito?'Quitar favorito':'Marcar favorito'}" style="font-size:22px;margin-top:2px;">${b.favorito?'⭐':'☆'}</button>
+    </div>
+    ${b.autor?`<div class="modal-field"><span>Autor</span>${b.autor}</div>`:''}
+    ${b.editorial?`<div class="modal-field"><span>Editorial</span>${b.editorial}</div>`:''}
+    ${(b.fecha||b.anio)?`<div class="modal-field"><span>Fecha leído</span>${b.fecha ? new Date(b.fecha+'T12:00:00').toLocaleDateString('es-AR',{day:'numeric',month:'long',year:'numeric'}) : (b.mes?MESES_NOMBRE[b.mes]+' ':'')+b.anio}</div>`:''}
+    ${b.formato?`<div class="modal-field"><span>Formato</span>${b.formato}</div>`:''}
+    ${b.comentarios?`<div class="modal-field"><span>Comentarios</span>${b.comentarios}</div>`:''}
+    <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+      <button class="btn" style="color:#dc2626;border-color:#fca5a5" onclick="deleteBook(${b.id})">Eliminar de la lista</button>
+    </div>
+  `;
+  document.getElementById('modal-bg').classList.add('open');
+}
+function closeModal() { document.getElementById('modal-bg').classList.remove('open'); }
+
+async function deleteBook(id) {
+  if(!confirm('¿Eliminar este libro de la lista de leídos?')) return;
+  books = books.filter(b=>b.id!==id);
+  await save();
+  populateFilters();
+  renderList();
+  closeModal();
+}
+
+// ── ADD BOOK ──────────────────────────────────────────────────────────────────
+async function addBook() {
+  const titulo = document.getElementById('n-titulo').value.trim();
+  if(!titulo) { showMsg('add-msg','El título es obligatorio.', true); return; }
+  const book = {
+    id: Date.now(),
+    titulo,
+    autor: document.getElementById('n-autor').value.trim(),
+    editorial: document.getElementById('n-editorial').value.trim(),
+    fecha: document.getElementById('n-fecha').value||'',
+    anio: document.getElementById('n-fecha').value ? parseInt(document.getElementById('n-fecha').value.split('-')[0]) : new Date().getFullYear(),
+    mes: document.getElementById('n-fecha').value ? parseInt(document.getElementById('n-fecha').value.split('-')[1]) : null,
+    formato: document.getElementById('n-formato').value,
+    comentarios: document.getElementById('n-comentarios').value.trim()
+  };
+  books.push(book);
+  await save();
+  populateFilters();
+  renderList();
+  clearForm();
+  showMsg('add-msg','¡Libro guardado!', false);
+}
+function clearForm() {
+  ['n-titulo','n-autor','n-editorial','n-fecha','n-comentarios'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('n-formato').value='';
+}
+function showMsg(id, txt, isErr) {
+  const el = document.getElementById(id);
+  el.textContent = txt;
+  el.className = 'msg' + (isErr?' err':'');
+  setTimeout(()=>el.textContent='', 3000);
+}
+
+// ── WISH LIST ─────────────────────────────────────────────────────────────────
+function renderWish() {
+  const el = document.getElementById('wish-list');
+  if(!wishes.length) { el.innerHTML='<div class="empty">Tu lista está vacía</div>'; return; }
+  el.innerHTML = wishes.map(w=>`
+    <div class="wish-item">
+      <div>
+        <div style="font-size:14px;font-weight:500">${w.titulo}</div>
+        ${w.autor?`<div style="font-size:12px;color:var(--text2)">${w.autor}</div>`:''}
+        ${w.comentario?`<div style="font-size:11px;color:var(--text3);margin-top:2px">${w.comentario}</div>`:''}
+      </div>
+      <div class="wish-actions">
+        <button class="icon-btn ok" onclick="markRead(${w.id})" title="Marcar como leído">✓</button>
+        <button class="icon-btn" onclick="removeWish(${w.id})" title="Eliminar">✕</button>
+      </div>
+    </div>`).join('');
+}
+
+async function addWish() {
+  const t = document.getElementById('w-titulo').value.trim();
+  if(!t) return;
+  wishes.push({id:Date.now(), titulo:t, autor:document.getElementById('w-autor').value.trim(), editorial:'', comentario:''});
+  await save();
+  document.getElementById('w-titulo').value='';
+  document.getElementById('w-autor').value='';
+  renderWish();
+}
+
+async function removeWish(id) {
+  wishes = wishes.filter(w=>w.id!==id);
+  await save();
+  renderWish();
+}
+
+async function markRead(id) {
+  const w = wishes.find(x=>x.id===id); if(!w) return;
+  // Check for duplicate (same title, case-insensitive)
+  const exists = books.some(b => b.titulo.toLowerCase().trim() === w.titulo.toLowerCase().trim());
+  if(exists) {
+    if(!confirm(`"${w.titulo}" ya está en tu lista de leídos. ¿Igual lo eliminás de "Quiero leer"?`)) return;
+  } else {
+    books.push({id:Date.now(), titulo:w.titulo, autor:w.autor, editorial:w.editorial||'', anio:new Date().getFullYear(), formato:'', comentarios:''});
+  }
+  wishes = wishes.filter(x=>x.id!==id);
+  await save();
+  populateFilters();
+  renderList();
+  renderWish();
+}
+
+// ── STATS ─────────────────────────────────────────────────────────────────────
+function renderStats() {
+  const byAnio={};
+  books.forEach(b=>{ if(b.anio) byAnio[b.anio]=(byAnio[b.anio]||0)+1; });
+  const anios=Object.keys(byAnio).sort();
+  const counts=anios.map(a=>byAnio[a]);
+  const max=anios.length?anios.reduce((a,b)=>byAnio[b]>byAnio[a]?b:a,anios[0]):'-';
+  const avg=anios.length?Math.round(books.length/anios.length):0;
+  const ac={};
+  books.forEach(b=>{ if(b.autor){ const k=b.autor.trim(); ac[k]=(ac[k]||0)+1; } });
+  const top=Object.entries(ac).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  document.getElementById('stats-grid').innerHTML=`
+    <div class="stat"><div class="n">${books.length}</div><div class="l">Libros leídos</div></div>
+    <div class="stat"><div class="n">${anios.length}</div><div class="l">Años registrados</div></div>
+    <div class="stat"><div class="n">${avg}</div><div class="l">Promedio / año</div></div>
+    <div class="stat"><div class="n">${max!=='-'?byAnio[max]:'-'}</div><div class="l">Récord (${max})</div></div>
+    <div class="stat"><div class="n">${wishes.length}</div><div class="l">Por leer</div></div>
+  `;
+
+  if(chart) chart.destroy();
+  const isDark = window.matchMedia('(prefers-color-scheme:dark)').matches;
+  chart = new Chart(document.getElementById('yearChart'),{
+    type:'bar',
+    data:{labels:anios, datasets:[{label:'Libros', data:counts,
+      backgroundColor: isDark?'#3b82f6':'#2563eb',
+      borderRadius:4, borderSkipped:false}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{autoSkip:false,maxRotation:45,font:{size:11},color:isDark?'#aeaeb2':'#666'},
+           grid:{display:false}},
+        y:{ticks:{stepSize:5,color:isDark?'#aeaeb2':'#666'},
+           grid:{color:isDark?'rgba(255,255,255,0.05)':'rgba(0,0,0,0.06)'}}
+      }
+    }
+  });
+
+  document.getElementById('top-authors').innerHTML=top.map(([a,c])=>`
+    <div class="author-row">
+      <div class="author-n">${c}</div>
+      <div class="author-name">${a}</div>
+    </div>`).join('');
+}
+
+// ── RENDER ALL ─────────────────────────────────────────────────────────────────
+function renderAll() {
+  populateFilters();
+  renderList();
+  renderWish();
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+loadLocal();
+renderAll();
+</script>
+
+</body>
+</html>
