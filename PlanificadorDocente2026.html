@@ -931,39 +931,55 @@ let rubricaGrupoActivo = 'g1';
 
 const RUBRICA_PARTES = [
   {
-    id: 'p1', titulo: 'Parte 1 — Análisis del dominio y modelado de procesos',
+    id: 'p1', titulo: 'Parte I — Encuadre del problema y definición de la propuesta',
     items: [
-      { id: 'p1_1', label: 'Identificación y descripción clara del proceso de negocio seleccionado' },
-      { id: 'p1_2', label: 'Modelado en BPMN correcto y completo (actividades, flujos, roles)' },
-      { id: 'p1_3', label: 'Identificación de actores, sistemas y puntos de integración' },
-      { id: 'p1_4', label: 'Claridad y coherencia en la presentación' },
+      { id: 'p1_1', label: 'Descripción clara del problema: situación actual vs. deseada y justificación de relevancia' },
+      { id: 'p1_2', label: 'Justificación con impacto esperado y al menos una referencia cuantificable' },
+      { id: 'p1_3', label: 'Análisis de soluciones existentes: alternativas, limitaciones y oportunidad de diferenciación' },
+      { id: 'p1_4', label: 'Definición del usuario o segmento objetivo' },
+      { id: 'p1_5', label: 'Propuesta de Valor preliminar y Visión de Producto inicial' },
+      { id: 'p1_6', label: 'Rol de la IA en la propuesta de valor (aporte o justificación de no uso)' },
+      { id: 'p1_7', label: 'Definición de hipótesis clave: de valor, de uso y de adopción' },
+      { id: 'p1_8', label: 'Validación preliminar: al menos una instancia de contraste con usuarios/fuentes y aprendizajes obtenidos' },
+      { id: 'p1_9', label: 'Primer encuadre del modelo de negocio: cliente/pagador, captura de valor, sostenibilidad' },
     ]
   },
   {
-    id: 'p2', titulo: 'Parte 2 — Relevamiento y especificación de requerimientos',
+    id: 'p2', titulo: 'Parte II — Diseño del Producto y experimentación',
     items: [
-      { id: 'p2_1', label: 'Requerimientos funcionales bien definidos y priorizados' },
-      { id: 'p2_2', label: 'Requerimientos no funcionales identificados' },
-      { id: 'p2_3', label: 'Casos de uso o historias de usuario completos y consistentes' },
-      { id: 'p2_4', label: 'Trazabilidad entre requerimientos y el proceso modelado' },
+      { id: 'p2_1', label: 'Ajustes a la Propuesta de Valor y Visión de Producto respecto a Parte I' },
+      { id: 'p2_2', label: 'Definición del PD: funcionalidades principales y alcance del MVP' },
+      { id: 'p2_3', label: 'User Personas (hasta 3) y Journey Map aplicados al producto' },
+      { id: 'p2_4', label: 'Priorización de funcionalidades: qué entra en el MVP, qué se posterga y por qué' },
+      { id: 'p2_5', label: 'Justificación explícita de decisiones de diseño: criterios, trade-offs y alternativas consideradas' },
+      { id: 'p2_6', label: 'Evidencia de validación: supuesto buscado, observación, decisión tomada y contraste del modelo de negocio' },
+      { id: 'p2_7', label: 'Prototipo navegable del producto (mínimo requerido)' },
+      { id: 'p2_8', label: 'Uso de IA en el diseño o funcionamiento: integración y valor aportado' },
+      { id: 'p2_9', label: 'Desarrollo del modelo de negocio: captura de valor, tipo de monetización y supuestos a validar' },
     ]
   },
   {
-    id: 'p3', titulo: 'Parte 3 — Diseño de la solución tecnológica',
+    id: 'p3', titulo: 'Parte III — PD y modelo (Draft)',
     items: [
-      { id: 'p3_1', label: 'Arquitectura propuesta adecuada al contexto organizacional' },
-      { id: 'p3_2', label: 'Selección y justificación de tecnologías (ERP, CRM, BI, etc.)' },
-      { id: 'p3_3', label: 'Consideración de integración con sistemas existentes' },
-      { id: 'p3_4', label: 'Viabilidad y pertinencia de la propuesta' },
+      { id: 'p3_1', label: 'Prototipo navegable de alta fidelidad o MVP funcional presentado' },
+      { id: 'p3_2', label: 'Propuesta de Valor final consolidada' },
+      { id: 'p3_3', label: 'Roadmap del producto: MVP definido y releases futuros' },
+      { id: 'p3_4', label: 'Modelo de negocio completo (Business Model Canvas o equivalente)' },
+      { id: 'p3_5', label: 'Métricas clave del producto y del negocio' },
+      { id: 'p3_6', label: 'Análisis del uso de IA: beneficios, limitaciones y riesgos' },
+      { id: 'p3_7', label: 'Preparación de la demo del producto' },
+      { id: 'p3_8', label: 'Versión preliminar de la presentación final incluida' },
     ]
   },
   {
-    id: 'p4', titulo: 'Parte 4 — Presentación final e integración',
+    id: 'p4', titulo: 'Entrega Final — Presentación y defensa oral',
     items: [
-      { id: 'p4_1', label: 'Coherencia e integración entre las partes del trabajo' },
-      { id: 'p4_2', label: 'Calidad de la presentación oral y el material de apoyo' },
-      { id: 'p4_3', label: 'Capacidad de respuesta ante preguntas del docente' },
-      { id: 'p4_4', label: 'Conclusiones y reflexión crítica sobre la solución propuesta' },
+      { id: 'p4_1', label: 'Versión final del deck / documento entregada' },
+      { id: 'p4_2', label: 'Producto Digital listo y funcional para demo' },
+      { id: 'p4_3', label: 'Argumentación de decisiones clave tomadas a lo largo del proyecto y sus fundamentos' },
+      { id: 'p4_4', label: 'Lógica del modelo de negocio: por qué crea valor, para quién y cómo lo captura' },
+      { id: 'p4_5', label: 'Principales aprendizajes del proceso de validación expuestos con claridad' },
+      { id: 'p4_6', label: 'Calidad del razonamiento que sostiene el producto (no solo el producto en sí)' },
     ]
   }
 ];
