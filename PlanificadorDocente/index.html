@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planificador Docente 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="js/firebase-sync.js"></script>
+</head>
+<body>
+<div class="app">
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <h1>Planificador Docente</h1>
+    <p>UNLP · FCE · 2026</p>
+  </div>
+
+  <div class="nav-section-label">Vista general</div>
+  <button class="nav-item active" onclick="switchTab('global', this)">
+    <span class="nav-icon">🏠</span> Mi semana
+  </button>
+
+  <div class="nav-section-label" style="color:#6ee89a;">Procesos de Negocio</div>
+  <button class="nav-item" onclick="switchTab('cronograma', this)">
+    <span class="nav-icon">📅</span> Cronograma
+  </button>
+  <button class="nav-item" onclick="switchTab('evaluaciones', this)">
+    <span class="nav-icon">📝</span> Evaluaciones
+  </button>
+  <button class="nav-item" onclick="switchTab('grupos', this)">
+    <span class="nav-icon">👥</span> Grupos
+  </button>
+  <button class="nav-item" onclick="switchTab('caso', this)">
+    <span class="nav-icon">📋</span> Caso de estudio
+  </button>
+  <button class="nav-item" onclick="switchTab('moodle', this)">
+    <span class="nav-icon">📚</span> Moodle / Biblio
+  </button>
+
+  <div class="nav-section-label" style="color:#6ec6ff;">TISI</div>
+  <button class="nav-item" onclick="switchTab('tisi-grupos', this)">
+    <span class="nav-icon">👥</span> Grupos
+  </button>
+  <button class="nav-item" onclick="switchTab('tisi-clases', this)">
+    <span class="nav-icon">💡</span> Mejora de clases
+  </button>
+  <button class="nav-item" onclick="switchTab('tisi-estrategia', this)">
+    <span class="nav-icon">🎯</span> Estrategia de cursada
+  </button>
+
+  <div class="data-actions">
+    <button class="btn-data export" onclick="exportarDatos()">⬇ Exportar mis datos</button>
+    <label class="btn-data import" style="cursor:pointer;">
+      ⬆ Importar datos
+      <input type="file" accept=".json" onchange="importarDatos(event)" style="display:none;">
+    </label>
+    <button id="auth-btn" onclick="toggleAuth()" class="btn-data" style="margin-top:6px;background:var(--surface);border:2px solid var(--border2);display:flex;align-items:center;gap:6px;justify-content:center;">
+      <span id="auth-dot" style="width:8px;height:8px;border-radius:50%;background:var(--text3);display:inline-block;"></span>
+      <span id="auth-label">Conectar con Google</span>
+    </button>
+  </div>
+</aside>
+
+<main class="main">
+  <!-- Sync bar -->
+  <div id="sync-bar" style="background:var(--surface);border:2px solid var(--border);border-radius:var(--radius);padding:9px 14px;margin-bottom:16px;font-size:13px;color:var(--text2);display:flex;align-items:center;gap:8px;font-weight:500;">
+    <span>⬤</span> <span id="sync-msg">Los datos se guardan localmente. Conectá con Google para sincronizar.</span>
+  </div>
+
+  <div class="page-header">
+    <div>
+      <div class="page-title" id="page-title">Mi semana</div>
+      <div class="page-subtitle" id="page-subtitle">Vista general · UNLP 2026</div>
+    </div>
+    <div style="font-size: 12px; color: var(--text3);" id="page-meta">Inicio PDN: mié 19 ago 2026</div>
+  </div>
+
+  <div class="metrics" id="metrics" style="display:none;"></div>
+  <div id="alertas"></div>
+
+  <!-- VISTA GLOBAL -->
+  <div class="section active" id="sec-global">
+    <!-- Cajón de entrada -->
+    <div class="cajon-card">
+      <div class="cajon-title">
+        📥 Cajón de entrada
+        <span class="cajon-badge-count" id="cajon-count" style="display:none;"></span>
+      </div>
+      <textarea class="cajon-textarea" id="cajon-texto" placeholder="Escribí cualquier idea, pendiente, nota... Después la clasificás."></textarea>
+      <div class="cajon-selects">
+        <select class="cajon-select" id="cajon-materia" onchange="updateCajonSecciones()">
+          <option value="">Materia...</option>
+          <option value="pnb">Procesos de Negocio</option>
+          <option value="tisi">TISI</option>
+        </select>
+        <select class="cajon-select" id="cajon-seccion">
+          <option value="">Sección...</option>
+        </select>
+        <select class="cajon-select" id="cajon-categoria">
+          <option value="">Categoría...</option>
+        </select>
+        <button class="btn-primary" onclick="guardarEnCajon()" style="font-size:14px;padding:8px 18px;">+ Guardar</button>
+      </div>
+      <div id="cajon-lista" style="margin-top:14px;"></div>
+    </div>
+
+    <!-- Recordatorios próximos -->
+    <div style="margin-bottom:24px;">
+      <div class="caso-title">🔔 Recordatorios próximos</div>
+      <div id="recordatorios-lista-global"></div>
+      <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;">
+        <input type="text" class="inp" id="inp-rec-texto" placeholder="Nuevo recordatorio..." style="flex:2;max-width:none;" />
+        <input type="date" class="inp" id="inp-rec-fecha" style="flex:1;max-width:180px;" />
+        <select class="cajon-select" id="inp-rec-materia">
+          <option value="pnb">PDN</option>
+          <option value="tisi">TISI</option>
+          <option value="general">General</option>
+        </select>
+        <button class="btn-primary" onclick="agregarRecordatorio()" style="font-size:14px;padding:8px 18px;">+ Agregar</button>
+      </div>
+    </div>
+
+    <!-- Sin clasificar del cajón -->
+    <div id="cajon-sin-clasificar-wrap" style="display:none;">
+      <div class="caso-title">⚠️ Sin clasificar <span id="sin-clasificar-count" class="cajon-badge-count"></span></div>
+      <div id="cajon-sin-clasificar"></div>
+    </div>
+  </div>
+
+  <!-- CRONOGRAMA -->
+  <div class="section" id="sec-cronograma">
+    <div class="filter-bar">
+      <span style="font-size:12px;color:var(--text3);align-self:center;">Filtrar:</span>
+      <button class="filter-btn active" onclick="filtrar('todos',this)">Todas</button>
+      <button class="filter-btn" onclick="filtrar('taller',this)">Talleres</button>
+      <button class="filter-btn" onclick="filtrar('parcial',this)">Parciales</button>
+      <button class="filter-btn" onclick="filtrar('exposicion',this)">Exposiciones</button>
+      <button class="filter-btn" onclick="filtrar('pendiente',this)">Pendientes</button>
+      <button class="filter-btn" onclick="filtrar('lista',this)">Listas ✓</button>
+    </div>
+    <div id="lista-clases"></div>
+  </div>
+
+  <div id="pnb-cajon-cronograma" style="display:none"></div>
+
+  <!-- EVALUACIONES -->
+  <div class="section" id="sec-evaluaciones">
+    <div id="lista-eval"></div>
+  </div>
+
+  <!-- GRUPOS PNB -->
+  <div class="section" id="sec-grupos">
+    <div class="grupos-grid" id="lista-grupos"></div>
+    <div class="add-grupo-row">
+      <input type="text" class="inp" id="inp-grupo" placeholder="Nombre del grupo..." />
+      <input type="text" class="inp" id="inp-integrantes" placeholder="Integrantes (opcional)" />
+      <button class="btn-primary" onclick="agregarGrupo()">+ Agregar</button>
+    </div>
+  </div>
+
+  <div id="pnb-cajon-grupos" style="display:none"></div>
+
+  <!-- CASO DE ESTUDIO -->
+  <div class="section" id="sec-caso">
+    <div class="caso-section">
+      <div class="caso-title">Hitos del caso de estudio</div>
+      <div id="lista-hitos"></div>
+      <div class="add-grupo-row">
+        <input type="text" class="inp" id="inp-hito" placeholder="Nuevo hito..." />
+        <input type="text" class="inp" id="inp-hito-fecha" placeholder="Fecha estimada" />
+        <button class="btn-primary" onclick="agregarHito()">+ Agregar</button>
+      </div>
+    </div>
+    <div class="caso-section">
+      <div class="caso-title">Notas del caso</div>
+      <textarea class="nota" style="min-height:120px;" id="nota-caso" placeholder="Ideas, estructura del caso, división de trabajo con ayudantes..." onchange="saveNotaCaso()"></textarea>
+    </div>
+  <div id="pnb-cajon-caso" style="display:none"></div>
+  </div>
+
+  <!-- MOODLE / BIBLIOGRAFÍA -->
+  <div class="section" id="sec-moodle">
+    <div id="lista-moodle"></div>
+  </div>
+
+  <div id="pnb-cajon-general" style="display:none"></div>
+
+  <!-- ============ TISI ============ -->
+
+  <!-- TISI GRUPOS -->
+  <div class="section" id="sec-tisi-grupos">
+    <div class="tisi-grupo-tabs">
+      <button class="tisi-grupo-tab active" onclick="switchTisiGrupo('g1', this)">Grupo 1</button>
+      <button class="tisi-grupo-tab" onclick="switchTisiGrupo('g2', this)">Grupo 2</button>
+      <button class="tisi-grupo-tab" onclick="switchTisiGrupo('rubrica', this)" style="margin-left:auto;">📋 Rúbrica del Proyecto</button>
+    </div>
+
+    <!-- Links TPs -->
+    <div style="margin-bottom:20px;">
+      <div class="caso-title" style="font-size:15px;">🔗 Links a TPs</div>
+      <div class="links-list" id="tisi-links-lista"></div>
+      <div class="add-link-row" style="margin-top:8px;">
+        <input class="inp-link" id="tisi-lurl" placeholder="https://..." style="flex:2;min-width:160px;" />
+        <input class="inp-link" id="tisi-llbl" placeholder="Nombre del link" style="flex:1;min-width:100px;" />
+        <button class="btn-xs" onclick="tisiAddLink()">+ Agregar</button>
+      </div>
+    </div>
+
+    <!-- Puntuación -->
+    <div style="margin-bottom:20px;">
+      <div class="caso-title" style="font-size:15px;">⭐ Puntuación</div>
+      <div class="puntuacion-grid">
+        <div class="puntuacion-box">
+          <div class="puntuacion-label">Nota formal</div>
+          <input class="puntuacion-input" type="text" id="tisi-nota-formal" placeholder="—" onchange="saveTisiPuntuacion()" />
+          <div style="font-size:12px;color:var(--text3);margin-top:6px;">Ej: 7, 8.5, Aprobado</div>
+        </div>
+        <div class="puntuacion-box">
+          <div class="puntuacion-label">Evaluación cualitativa</div>
+          <textarea class="nota" style="min-height:70px;margin-top:0;" id="tisi-nota-cualitativa" placeholder="Observaciones sobre el desempeño del grupo..." onchange="saveTisiPuntuacion()"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Entradas por categoría -->
+    <div class="tisi-cat-tabs">
+      <button class="tisi-cat-btn active" onclick="switchTisiCat('todas', this)">Todas</button>
+      <button class="tisi-cat-btn" onclick="switchTisiCat('notas', this)">📝 Notas</button>
+      <button class="tisi-cat-btn" onclick="switchTisiCat('pendientes', this)">✅ Pendientes</button>
+      <button class="tisi-cat-btn" onclick="switchTisiCat('ideas', this)">💡 Ideas</button>
+    </div>
+    <div id="tisi-entradas-lista"></div>
+    <div style="background:var(--surface);border:2px dashed var(--border2);border-radius:var(--radius);padding:16px 18px;margin-top:8px;">
+      <textarea class="cajon-textarea" style="margin-bottom:10px;" id="tisi-nueva-entrada" placeholder="Nueva nota, pendiente o idea para este grupo..."></textarea>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <select class="cajon-select" id="tisi-nueva-cat">
+          <option value="notas">📝 Nota</option>
+          <option value="pendientes">✅ Pendiente</option>
+          <option value="ideas">💡 Idea</option>
+        </select>
+        <input type="date" class="inp" id="tisi-nueva-fecha" style="max-width:180px;font-size:14px;padding:7px 10px;" title="Fecha (opcional, para recordatorio)" />
+        <button class="btn-primary" onclick="agregarTisiEntrada()" style="font-size:14px;padding:8px 18px;">+ Agregar</button>
+      </div>
+    </div>
+    <!-- Rúbrica del Proyecto -->
+    <div id="tisi-rubrica-panel" style="display:none;">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
+        <div style="font-size:15px;font-weight:700;color:var(--text);">📋 Rúbrica del Proyecto Integrador</div>
+        <div style="display:flex;gap:6px;margin-left:auto;">
+          <button class="filter-btn active" id="rb-g1-btn" onclick="switchRubricaGrupo('g1',this)">Grupo 1</button>
+          <button class="filter-btn" id="rb-g2-btn" onclick="switchRubricaGrupo('g2',this)">Grupo 2</button>
+        </div>
+      </div>
+      <div id="rubrica-content"></div>
+    </div>
+
+  </div>
+
+  <!-- TISI MEJORA DE CLASES -->
+  <div class="section" id="sec-tisi-clases">
+    <div class="add-reflexion-form">
+      <input type="text" id="tisi-ref-titulo" placeholder="Título (ej: Clase 3 — BPMN)" />
+      <textarea class="cajon-textarea" id="tisi-ref-body" placeholder="Reflexión, idea de mejora, ejemplo para agregar..."></textarea>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <select class="cajon-select" id="tisi-ref-tipo">
+          <option value="reflexion">💭 Reflexión sobre clase dada</option>
+          <option value="mejora">✨ Idea de mejora para el año siguiente</option>
+          <option value="ejemplo">🔗 Ejemplo / material</option>
+        </select>
+        <button class="btn-primary" onclick="agregarReflexion()" style="font-size:14px;padding:8px 18px;">+ Guardar</button>
+      </div>
+    </div>
+    <div id="tisi-reflexiones-lista"></div>
+  </div>
+
+  <!-- TISI ESTRATEGIA -->
+  <div class="section" id="sec-tisi-estrategia">
+    <div class="add-reflexion-form">
+      <input type="text" id="tisi-est-titulo" placeholder="Título (ej: Idea para reorganizar parciales)" />
+      <textarea class="cajon-textarea" id="tisi-est-body" placeholder="Estrategia, idea, reflexión sobre la cursada actual..."></textarea>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <select class="cajon-select" id="tisi-est-tipo">
+          <option value="actual">📌 Cursada actual</option>
+          <option value="siguiente">🔮 Para el año siguiente</option>
+        </select>
+        <button class="btn-primary" onclick="agregarEstrategia()" style="font-size:14px;padding:8px 18px;">+ Guardar</button>
+      </div>
+    </div>
+    <div class="tisi-cat-tabs" style="margin-bottom:16px;">
+      <button class="tisi-cat-btn active" onclick="switchEstrategiaCat('todas',this)">Todas</button>
+      <button class="tisi-cat-btn" onclick="switchEstrategiaCat('actual',this)">📌 Cursada actual</button>
+      <button class="tisi-cat-btn" onclick="switchEstrategiaCat('siguiente',this)">🔮 Año siguiente</button>
+    </div>
+    <div id="tisi-estrategia-lista"></div>
+  </div>
+
+</main>
+</div>
+
+<script src="data/data-2026.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
