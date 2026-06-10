@@ -51,9 +51,9 @@ function getLocalSnapshot() {
     version: 3,
     fecha: new Date().toISOString(),
     estados, notas, evalData, evalNotas, evalLinks,
-    grupos, hitos, moodleData, notaCaso, claseLinks, claseBiblio,
+    grupos, hitos, moodleData, moodleNotas, moodleLinks, notaCaso, claseLinks, claseBiblio,
     tisiEntradas, tisiLinks, tisiPuntuacion, tisiReflexiones, tisiEstrategia,
-    tisiRubrica, cajonItems, pnbCajonNotas, recordatorios
+    tisiRubrica, cajonItems, pnbCajonNotas, recordatorios, lecturas
   };
 }
 
@@ -66,6 +66,8 @@ function importRemoteData(datos) {
   grupos     = datos.grupos     || [];
   hitos      = datos.hitos      || HITOS_DEFAULT;
   moodleData = datos.moodleData || {};
+  moodleNotas = datos.moodleNotas || {};
+  moodleLinks = datos.moodleLinks || {};
   notaCaso   = datos.notaCaso   || '';
   claseLinks = datos.claseLinks || {};
   claseBiblio = datos.claseBiblio || {};
@@ -78,6 +80,7 @@ function importRemoteData(datos) {
   cajonItems      = datos.cajonItems      || [];
   pnbCajonNotas   = datos.pnbCajonNotas   || [];
   recordatorios   = datos.recordatorios   || [];
+  lecturas        = datos.lecturas        || [];
   // Guardar también en local como caché
   persist(false);
   renderMetrics(); renderAlertas(); renderClases(); renderEval(); renderGrupos(); renderGlobal();
@@ -91,6 +94,9 @@ let evalLinks = load('pnb_evallinks', {});
 let grupos    = load('pnb_grupos', []);
 let hitos     = load('pnb_hitos', HITOS_DEFAULT);
 let moodleData= load('pnb_moodle', {});
+let moodleNotas= load('pnb_moodlenotas', {});
+let moodleLinks= load('pnb_moodlelinks', {});
+let expandedMoodle = null;
 let notaCaso  = load('pnb_notacaso', '');
 let claseLinks= load('pnb_claselinks', {});
 let claseBiblio= load('pnb_clasebiblio', {});
@@ -116,6 +122,11 @@ let cajonItems       = load('cajon_items', []);
 let pnbCajonNotas    = load('pnb_cajon_notas', []);
 let recordatorios    = load('recordatorios', []);
 
+// Lecturas / Bibliografía
+let lecturas = load('pnb_lecturas', []);
+let lecturaFiltro = 'todas';
+let expandedLectura = null;
+
 let _saveTimer = null;
 function persist(syncCloud = true) {
   // Guardar en localStorage (caché local)
@@ -127,6 +138,8 @@ function persist(syncCloud = true) {
   saveLocal('pnb_grupos', grupos);
   saveLocal('pnb_hitos', hitos);
   saveLocal('pnb_moodle', moodleData);
+  saveLocal('pnb_moodlenotas', moodleNotas);
+  saveLocal('pnb_moodlelinks', moodleLinks);
   saveLocal('pnb_notacaso', notaCaso);
   saveLocal('pnb_claselinks', claseLinks);
   saveLocal('pnb_clasebiblio', claseBiblio);
@@ -139,6 +152,7 @@ function persist(syncCloud = true) {
   saveLocal('cajon_items', cajonItems);
   saveLocal('pnb_cajon_notas', pnbCajonNotas);
   saveLocal('recordatorios', recordatorios);
+  saveLocal('pnb_lecturas', lecturas);
 
   // Guardar en Firestore con debounce (espera 1.5s de inactividad)
   if(syncCloud && window._fbSave) {
@@ -160,11 +174,12 @@ function switchTab(tab, btn) {
   const metricsEl = document.getElementById('metrics');
   const titles = {
     global:         ['Mi semana', 'Vista general · UNLP 2026', ''],
+    lecturas:       ['Lecturas', 'Bibliografía, notas y reflexiones', ''],
     cronograma:     ['Cronograma 2026', 'Miércoles · Ciencia de Datos en las Organizaciones', 'Inicio PDN: mié 19 ago 2026'],
     evaluaciones:   ['Evaluaciones', 'Procesos de Negocio', ''],
     grupos:         ['Grupos — Caso de Estudio', 'Procesos de Negocio', ''],
     caso:           ['Caso de Estudio', 'Procesos de Negocio', ''],
-    moodle:         ['Material y Bibliografía', 'Procesos de Negocio', ''],
+    moodle:         ['Moodle', 'Procesos de Negocio · Material subido por clase', ''],
     'tisi-grupos':  ['Grupos', 'TISI · Seguimiento', ''],
     'tisi-clases':  ['Mejora de Clases', 'TISI · Reflexiones para el año siguiente', ''],
     'tisi-estrategia': ['Estrategia de Cursada', 'TISI · Ideas y reflexiones', ''],
@@ -182,6 +197,7 @@ function switchTab(tab, btn) {
   }
 
   if(tab==='moodle') renderMoodle();
+  if(tab==='lecturas') renderLecturas();
   if(tab==='caso') { renderHitos(); document.getElementById('nota-caso').value = notaCaso; }
   if(tab==='global') { renderGlobal(); }
   if(tab==='tisi-grupos') { renderTisiGrupos(); }
@@ -301,8 +317,14 @@ function renderClases() {
   }).join('');
 }
 
+function getLinkStore(scope) {
+  if(scope === 'clase') return claseLinks;
+  if(scope === 'moodle') return moodleLinks;
+  return evalLinks;
+}
+
 function renderLinksList(scope, key) {
-  const store = scope === 'clase' ? claseLinks : evalLinks;
+  const store = getLinkStore(scope);
   const links = store[key] || [];
   if(!links.length) return '';
   return links.map((l,i) => `
@@ -314,8 +336,8 @@ function renderLinksList(scope, key) {
 }
 
 function addLink(scope, key) {
-  const urlId = scope === 'clase' ? `lurl-${key}` : `lurl-eval-${key}`;
-  const lblId = scope === 'clase' ? `llbl-${key}` : `llbl-eval-${key}`;
+  const urlId = scope === 'clase' ? `lurl-${key}` : (scope === 'moodle' ? `lurl-moodle-${key}` : `lurl-eval-${key}`);
+  const lblId = scope === 'clase' ? `llbl-${key}` : (scope === 'moodle' ? `llbl-moodle-${key}` : `llbl-eval-${key}`);
   const urlEl = document.getElementById(urlId);
   const lblEl = document.getElementById(lblId);
   if(!urlEl) return;
@@ -323,7 +345,7 @@ function addLink(scope, key) {
   if(!url) return;
   if(!/^https?:\/\//i.test(url)) url = 'https://' + url;
   const label = lblEl ? lblEl.value.trim() : '';
-  const store = scope === 'clase' ? claseLinks : evalLinks;
+  const store = getLinkStore(scope);
   if(!store[key]) store[key] = [];
   store[key].push({url, label});
   urlEl.value = ''; if(lblEl) lblEl.value = '';
@@ -333,7 +355,7 @@ function addLink(scope, key) {
 }
 
 function removeLink(scope, key, idx) {
-  const store = scope === 'clase' ? claseLinks : evalLinks;
+  const store = getLinkStore(scope);
   if(!store[key]) return;
   store[key].splice(idx, 1);
   persist();
@@ -345,7 +367,7 @@ function toggleCard(n) { expanded = expanded === n ? null : n; renderClases(); }
 function setEstado(n, v) { estados[n] = v; persist(); renderMetrics(); renderClases(); }
 function setNota(n, v) { notas[n] = v; persist(); }
 function setBiblio(n, v) { claseBiblio[n] = v; persist(); }
-function toggleMoodle(n) { moodleData[n] = !moodleData[n]; persist(); renderClases(); }
+function toggleMoodle(n) { moodleData[n] = !moodleData[n]; persist(); renderClases(); renderMoodle(); }
 
 // --- Evaluaciones ---
 function renderEval() {
@@ -902,19 +924,46 @@ function renderEstrategia() {
   }).join('');
 }
 
-// ============ EXPORT / IMPORT (actualizado) ============
+// ============ MOODLE ============
+function toggleMoodleCard(n) { expandedMoodle = expandedMoodle === n ? null : n; renderMoodle(); }
+function setMoodleNota(n, v) { moodleNotas[n] = v; persist(); }
+
 function renderMoodle() {
   const container = document.getElementById('lista-moodle');
   const activas = CLASES.filter(c => !['sf','feriado','teoria'].includes(c.tipo));
+  const subidas = activas.filter(c => moodleData[c.n]).length;
   container.innerHTML = `
-    <p style="font-size:13px;color:var(--text2);margin-bottom:16px;">Marcá las clases donde ya subiste el material a Moodle.</p>
-    ${activas.map(c => `
-      <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
-        <input type="checkbox" ${moodleData[c.n]?'checked':''} onchange="toggleMoodle(${c.n})" style="width:16px;height:16px;accent-color:var(--accent);">
-        <span style="font-size:12px;color:var(--text3);min-width:90px;">${c.fecha}</span>
-        <span style="font-size:13px;${moodleData[c.n]?'color:var(--text3);text-decoration:line-through;':''}">${(c.practica||c.taller||c.teoria||'—').slice(0,70)}</span>
-      </div>
-    `).join('')}
+    <p style="font-size:13px;color:var(--text2);margin-bottom:16px;">Marcá las clases donde ya subiste todo el material a Moodle (${subidas}/${activas.length}). Por clase podés agregar notas y links al material.</p>
+    ${activas.map(c => {
+      const subido = !!moodleData[c.n];
+      const nota = moodleNotas[c.n] || '';
+      const titulo = c.practica || c.taller || c.teoria || '—';
+      const isExp = expandedMoodle === c.n;
+      return `<div class="clase-card${isExp?' expanded':''}" id="moodle-card-${c.n}">
+        <div class="clase-header" onclick="toggleMoodleCard(${c.n})">
+          <input type="checkbox" ${subido?'checked':''} onclick="event.stopPropagation()" onchange="toggleMoodle(${c.n})" style="width:16px;height:16px;accent-color:var(--accent);">
+          <span class="clase-num">${String(c.n).padStart(2,'0')}</span>
+          <span class="clase-fecha">${c.fecha}</span>
+          <span class="clase-titulo${subido?' dimmed':''}" style="${subido?'text-decoration:line-through;':''}">${titulo.length>65?titulo.slice(0,65)+'…':titulo}</span>
+          ${subido ? '<span class="badge badge-taller">✓ Subido</span>' : ''}
+        </div>
+        ${isExp ? `<div class="clase-detalle">
+          <div class="links-section" style="margin-top:0;padding-top:0;border-top:none;">
+            <p class="links-section-label">📝 Notas</p>
+            <textarea class="nota" onclick="event.stopPropagation()" placeholder="Qué subiste, qué falta, observaciones..." onchange="setMoodleNota(${c.n},this.value)">${nota}</textarea>
+          </div>
+          <div class="links-section" onclick="event.stopPropagation()">
+            <p class="links-section-label">Links al material</p>
+            <div class="links-list" id="links-moodle-${c.n}">${renderLinksList('moodle', c.n)}</div>
+            <div class="add-link-row">
+              <input class="inp-link" id="lurl-moodle-${c.n}" placeholder="https://..." style="flex:2;min-width:160px;" />
+              <input class="inp-link" id="llbl-moodle-${c.n}" placeholder="Nombre del link" style="flex:1;min-width:100px;" />
+              <button class="btn-xs" onclick="addLink('moodle',${c.n})">+ Agregar</button>
+            </div>
+          </div>
+        </div>` : ''}
+      </div>`;
+    }).join('')}
   `;
 }
 
@@ -952,12 +1001,144 @@ function importarDatos(event) {
   event.target.value = '';
 }
 
+// ============ LECTURAS / BIBLIOGRAFÍA ============
+function agregarLectura() {
+  const titulo = document.getElementById('lect-titulo').value.trim();
+  const autor  = document.getElementById('lect-autor').value.trim();
+  const tipo   = document.getElementById('lect-tipo').value;
+  const materia= document.getElementById('lect-materia').value;
+  const link   = document.getElementById('lect-link').value.trim();
+  if(!titulo) { alert('Ingresá al menos un título.'); return; }
+  lecturas.unshift({
+    id: Date.now(),
+    titulo, autor, tipo, materia, link,
+    estado: 'porleer',
+    fecha: new Date().toISOString(),
+    notas: []
+  });
+  document.getElementById('lect-titulo').value = '';
+  document.getElementById('lect-autor').value = '';
+  document.getElementById('lect-link').value = '';
+  persist();
+  renderLecturas();
+}
+
+function eliminarLectura(id) {
+  if(!confirm('¿Eliminar este material y todas sus notas?')) return;
+  lecturas = lecturas.filter(l => l.id !== id);
+  persist();
+  renderLecturas();
+}
+
+function setLecturaEstado(id, v) {
+  const l = lecturas.find(x => x.id === id);
+  if(l) { l.estado = v; persist(); renderLecturas(); }
+}
+
+function toggleLecturaCard(id) {
+  expandedLectura = expandedLectura === id ? null : id;
+  renderLecturas();
+}
+
+function filtrarLecturas(materia, btn) {
+  lecturaFiltro = materia;
+  document.querySelectorAll('#lecturas-filtros .tisi-cat-btn').forEach(b => b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  renderLecturas();
+}
+
+function agregarNotaLectura(id) {
+  const ta = document.getElementById(`lect-nota-${id}`);
+  const texto = ta.value.trim();
+  if(!texto) return;
+  const l = lecturas.find(x => x.id === id);
+  if(!l) return;
+  l.notas.unshift({ texto, fecha: new Date().toISOString() });
+  ta.value = '';
+  persist();
+  renderLecturas();
+}
+
+function eliminarNotaLectura(id, idx) {
+  const l = lecturas.find(x => x.id === id);
+  if(!l) return;
+  l.notas.splice(idx, 1);
+  persist();
+  renderLecturas();
+}
+
+const LECTURA_TIPO_LABEL = { libro: '📕 Libro', articulo: '📄 Artículo', otro: '📦 Otro' };
+const LECTURA_MATERIA_LABEL = { PDN: 'Procesos de Negocio', TISI: 'TISI', general: 'General', otra: 'Otra' };
+const LECTURA_MATERIA_BADGE = { PDN: 'badge-taller', TISI: 'badge-sf', general: 'badge-feriado', otra: 'badge-exposicion' };
+
+function renderLecturas() {
+  const filtros = document.getElementById('lecturas-filtros');
+  if(filtros && !filtros.dataset.init) {
+    filtros.innerHTML = `
+      <button class="tisi-cat-btn active" onclick="filtrarLecturas('todas', this)">Todas</button>
+      <button class="tisi-cat-btn" onclick="filtrarLecturas('PDN', this)">Procesos de Negocio</button>
+      <button class="tisi-cat-btn" onclick="filtrarLecturas('TISI', this)">TISI</button>
+      <button class="tisi-cat-btn" onclick="filtrarLecturas('general', this)">General</button>
+      <button class="tisi-cat-btn" onclick="filtrarLecturas('otra', this)">Otra</button>
+    `;
+    filtros.dataset.init = '1';
+  }
+
+  const container = document.getElementById('lista-lecturas');
+  if(!container) return;
+
+  const items = lecturaFiltro === 'todas' ? lecturas : lecturas.filter(l => l.materia === lecturaFiltro);
+
+  if(items.length === 0) {
+    container.innerHTML = `<p style="font-size:13px;color:var(--text2);">No hay material cargado todavía. Agregá un libro o artículo arriba.</p>`;
+    return;
+  }
+
+  container.innerHTML = items.map(l => {
+    const isExp = expandedLectura === l.id;
+    return `<div class="clase-card${isExp?' expanded':''}" id="lectura-card-${l.id}">
+      <div class="clase-header" onclick="toggleLecturaCard(${l.id})">
+        <span class="clase-titulo">${l.titulo}${l.autor ? ` <span style="color:var(--text3);font-weight:400;">— ${l.autor}</span>` : ''}</span>
+        <span class="badge ${LECTURA_MATERIA_BADGE[l.materia] || 'badge-feriado'}">${LECTURA_MATERIA_LABEL[l.materia] || l.materia}</span>
+        <span class="badge badge-sf">${LECTURA_TIPO_LABEL[l.tipo] || l.tipo}</span>
+        <select class="estado-select ${l.estado}" onclick="event.stopPropagation()" onchange="setLecturaEstado(${l.id}, this.value)">
+          <option value="porleer" ${l.estado==='porleer'?'selected':''}>Por leer</option>
+          <option value="leyendo" ${l.estado==='leyendo'?'selected':''}>Leyendo</option>
+          <option value="leido" ${l.estado==='leido'?'selected':''}>Leído</option>
+        </select>
+      </div>
+      ${isExp ? `<div class="clase-detalle">
+        ${l.link ? `<div class="links-section" style="margin-top:0;padding-top:0;border-top:none;">
+          <a class="link-anchor" href="${l.link}" target="_blank" rel="noopener">🔗 ${l.link}</a>
+        </div>` : ''}
+        <div class="add-reflexion-form" onclick="event.stopPropagation()">
+          <textarea class="nota" id="lect-nota-${l.id}" placeholder="Agregar comentario, reflexión o idea..."></textarea>
+          <button class="btn-primary" onclick="agregarNotaLectura(${l.id})">+ Agregar nota</button>
+        </div>
+        ${l.notas.map((n, idx) => `
+          <div class="reflexion-card" onclick="event.stopPropagation()">
+            <div class="reflexion-top">
+              <span class="reflexion-fecha">${new Date(n.fecha).toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit', year:'numeric'})}</span>
+              <button class="btn-xs" onclick="eliminarNotaLectura(${l.id}, ${idx})">Eliminar</button>
+            </div>
+            <div class="reflexion-body">${n.texto}</div>
+          </div>
+        `).join('')}
+        <div style="text-align:right;margin-top:8px;">
+          <button class="btn-xs" onclick="eliminarLectura(${l.id})">🗑 Eliminar material</button>
+        </div>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
 // Init
 renderAlertas();
 renderClases();
 renderEval();
 renderGrupos();
 renderGlobal();
+renderLecturas();
 // Inicializar select de cajón
 updateCajonSecciones();
 renderPnbCajonNotas();

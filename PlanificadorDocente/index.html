@@ -26,6 +26,9 @@
   <button class="nav-item active" onclick="switchTab('global', this)">
     <span class="nav-icon">🏠</span> Mi semana
   </button>
+  <button class="nav-item" onclick="switchTab('lecturas', this)">
+    <span class="nav-icon">📖</span> Lecturas
+  </button>
 
   <div class="nav-section-label" style="color:#6ee89a;">Procesos de Negocio</div>
   <button class="nav-item" onclick="switchTab('cronograma', this)">
@@ -41,7 +44,7 @@
     <span class="nav-icon">📋</span> Caso de estudio
   </button>
   <button class="nav-item" onclick="switchTab('moodle', this)">
-    <span class="nav-icon">📚</span> Moodle / Biblio
+    <span class="nav-icon">📚</span> Moodle
   </button>
 
   <div class="nav-section-label" style="color:#6ec6ff;">TISI</div>
@@ -188,6 +191,34 @@
   <!-- MOODLE / BIBLIOGRAFÍA -->
   <div class="section" id="sec-moodle">
     <div id="lista-moodle"></div>
+  </div>
+
+  <!-- LECTURAS -->
+  <div class="section" id="sec-lecturas">
+    <div class="cajon-card">
+      <div class="cajon-title">📖 Agregar material</div>
+      <div class="cajon-selects" style="margin-bottom:8px;">
+        <input class="inp" id="lect-titulo" placeholder="Título" style="flex:2;min-width:160px;" />
+        <input class="inp" id="lect-autor" placeholder="Autor" style="flex:1;min-width:120px;" />
+      </div>
+      <div class="cajon-selects">
+        <select class="cajon-select" id="lect-tipo">
+          <option value="libro">📕 Libro</option>
+          <option value="articulo">📄 Artículo</option>
+          <option value="otro">📦 Otro</option>
+        </select>
+        <select class="cajon-select" id="lect-materia">
+          <option value="PDN">Procesos de Negocio</option>
+          <option value="TISI">TISI</option>
+          <option value="general">General</option>
+          <option value="otra">Otra</option>
+        </select>
+        <input class="inp-link" id="lect-link" placeholder="Link (opcional)" style="flex:2;min-width:160px;" />
+        <button class="btn-primary" onclick="agregarLectura()">+ Agregar</button>
+      </div>
+    </div>
+    <div class="tisi-cat-tabs" id="lecturas-filtros"></div>
+    <div id="lista-lecturas"></div>
   </div>
 
   <div id="pnb-cajon-general" style="display:none"></div>
