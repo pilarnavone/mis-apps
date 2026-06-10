@@ -53,7 +53,8 @@ function getLocalSnapshot() {
     estados, notas, evalData, evalNotas, evalLinks,
     grupos, hitos, moodleData, moodleNotas, moodleLinks, notaCaso, claseLinks, claseBiblio,
     tisiEntradas, tisiLinks, tisiPuntuacion, tisiReflexiones, tisiEstrategia,
-    tisiRubrica, cajonItems, pnbCajonNotas, recordatorios, lecturas
+    tisiRubrica, cajonItems, pnbCajonNotas, recordatorios, lecturas,
+    clasePlazos, calendarioEventos
   };
 }
 
@@ -81,9 +82,11 @@ function importRemoteData(datos) {
   pnbCajonNotas   = datos.pnbCajonNotas   || [];
   recordatorios   = datos.recordatorios   || [];
   lecturas        = datos.lecturas        || [];
+  clasePlazos     = datos.clasePlazos     || {};
+  calendarioEventos = datos.calendarioEventos || [];
   // Guardar también en local como caché
   persist(false);
-  renderMetrics(); renderAlertas(); renderClases(); renderEval(); renderGrupos(); renderGlobal();
+  renderMetrics(); renderAlertas(); renderClases(); renderEval(); renderGrupos(); renderGlobal(); renderCalendario();
 }
 
 let estados   = load('pnb_estados', {});
@@ -127,6 +130,15 @@ let lecturas = load('pnb_lecturas', []);
 let lecturaFiltro = 'todas';
 let expandedLectura = null;
 
+// Plazos de preparación de clases
+let clasePlazos = load('pnb_claseplazos', {});
+
+// Calendario
+let calendarioEventos = load('pnb_calendario', []);
+let calMes = new Date().getMonth();
+let calAnio = new Date().getFullYear();
+let calDiaSel = null;
+
 let _saveTimer = null;
 function persist(syncCloud = true) {
   // Guardar en localStorage (caché local)
@@ -153,6 +165,8 @@ function persist(syncCloud = true) {
   saveLocal('pnb_cajon_notas', pnbCajonNotas);
   saveLocal('recordatorios', recordatorios);
   saveLocal('pnb_lecturas', lecturas);
+  saveLocal('pnb_claseplazos', clasePlazos);
+  saveLocal('pnb_calendario', calendarioEventos);
 
   // Guardar en Firestore con debounce (espera 1.5s de inactividad)
   if(syncCloud && window._fbSave) {
@@ -175,6 +189,7 @@ function switchTab(tab, btn) {
   const titles = {
     global:         ['Mi semana', 'Vista general · UNLP 2026', ''],
     lecturas:       ['Lecturas', 'Bibliografía, notas y reflexiones', ''],
+    calendario:     ['Calendario', 'Vista general de fechas importantes', ''],
     cronograma:     ['Cronograma 2026', 'Miércoles · Ciencia de Datos en las Organizaciones', 'Inicio PDN: mié 19 ago 2026'],
     evaluaciones:   ['Evaluaciones', 'Procesos de Negocio', ''],
     grupos:         ['Grupos — Caso de Estudio', 'Procesos de Negocio', ''],
@@ -198,6 +213,7 @@ function switchTab(tab, btn) {
 
   if(tab==='moodle') renderMoodle();
   if(tab==='lecturas') renderLecturas();
+  if(tab==='calendario') renderCalendario();
   if(tab==='caso') { renderHitos(); document.getElementById('nota-caso').value = notaCaso; }
   if(tab==='global') { renderGlobal(); }
   if(tab==='tisi-grupos') { renderTisiGrupos(); }
@@ -229,6 +245,7 @@ function renderMetrics() {
 
 function renderAlertas() {
   const hoy = new Date();
+  hoy.setHours(0,0,0,0);
   const checks = [
     {nombre:'Primer Parcial',    fecha: new Date(2026,8,23)},
     {nombre:'Segundo Parcial',   fecha: new Date(2026,10,2)},
@@ -240,6 +257,20 @@ function renderAlertas() {
     if(diff > 0 && diff <= 21) {
       const cls = diff <= 14 ? 'danger' : 'warning';
       html += `<div class="alert ${cls}">⚠ <strong>${p.nombre}</strong> en ${diff} días — preparar enunciado</div>`;
+    }
+  });
+  CLASES.forEach(c => {
+    const fecha = clasePlazos[c.n];
+    if(!fecha) return;
+    const est = estados[c.n] || 'pendiente';
+    if(est === 'lista' || est === 'dada') return;
+    const d = new Date(fecha+'T00:00:00');
+    const diff = Math.round((d - hoy)/(1000*60*60*24));
+    if(diff <= 7) {
+      const cls = diff <= 3 ? 'danger' : 'warning';
+      const titulo = c.teoria || c.practica || c.taller || `Clase ${c.n}`;
+      const txt = diff < 0 ? `vencido hace ${Math.abs(diff)} día(s)` : (diff === 0 ? 'es hoy' : `en ${diff} día(s)`);
+      html += `<div class="alert ${cls}">⏰ <strong>Clase ${String(c.n).padStart(2,'0')}</strong> (${titulo.length>40?titulo.slice(0,40)+'…':titulo}) — plazo de preparación ${txt}</div>`;
     }
   });
   document.getElementById('alertas').innerHTML = html;
@@ -282,6 +313,7 @@ function renderClases() {
         <span class="clase-fecha">${c.fecha}</span>
         <span class="clase-titulo${admin?' dimmed':''}">${titulo.length>65?titulo.slice(0,65)+'…':titulo}</span>
         ${badgeHTML(c.tipo)}
+        ${plazoBadge(c)}
         ${!admin ? `<select class="estado-select ${est}" onclick="event.stopPropagation()" onchange="setEstado(${c.n},this.value)">
           <option value="pendiente" ${est==='pendiente'?'selected':''}>Pendiente</option>
           <option value="progreso" ${est==='progreso'?'selected':''}>En progreso</option>
@@ -294,6 +326,10 @@ function renderClases() {
           ${c.practica ? `<span class="detalle-label">Práctica</span><span class="detalle-val">${c.practica}</span>` : ''}
           ${c.taller ? `<span class="detalle-label">Taller</span><span class="detalle-val">${c.taller}</span>` : ''}
           ${c.comentario ? `<span class="detalle-label">Pendiente</span><span class="detalle-val comment">${c.comentario}</span>` : ''}
+        </div>
+        <div class="links-section" onclick="event.stopPropagation()" style="margin-top:0;padding-top:0;border-top:none;">
+          <p class="links-section-label">⏰ Plazo para tener la clase preparada</p>
+          <input type="date" class="inp" value="${clasePlazos[c.n]||''}" onchange="setClasePlazo(${c.n}, this.value)" style="max-width:180px;" />
         </div>
         <textarea class="nota" onclick="event.stopPropagation()" placeholder="Notas, ideas, observaciones..." onchange="setNota(${c.n},this.value)">${nota}</textarea>
         <div class="links-section" onclick="event.stopPropagation()">
@@ -367,6 +403,27 @@ function toggleCard(n) { expanded = expanded === n ? null : n; renderClases(); }
 function setEstado(n, v) { estados[n] = v; persist(); renderMetrics(); renderClases(); }
 function setNota(n, v) { notas[n] = v; persist(); }
 function setBiblio(n, v) { claseBiblio[n] = v; persist(); }
+
+function fechaCorta(d) { return d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit'}); }
+
+function plazoBadge(c) {
+  const fecha = clasePlazos[c.n];
+  if(!fecha) return '';
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const d = new Date(fecha+'T00:00:00');
+  const diff = Math.round((d - hoy)/(1000*60*60*24));
+  const est = estados[c.n] || 'pendiente';
+  const lista = est === 'lista' || est === 'dada';
+  let cls;
+  if(lista) cls = 'badge-taller';
+  else if(diff <= 3) cls = 'badge-parcial';
+  else if(diff <= 7) cls = 'badge-exposicion';
+  else cls = 'badge-sf';
+  const txt = lista ? `✓ ${fechaCorta(d)}` : (diff < 0 ? `⏰ Vencido ${fechaCorta(d)}` : `⏰ ${fechaCorta(d)}`);
+  return `<span class="badge ${cls}">${txt}</span>`;
+}
+
+function setClasePlazo(n, v) { clasePlazos[n] = v; persist(); renderClases(); renderAlertas(); }
 function toggleMoodle(n) { moodleData[n] = !moodleData[n]; persist(); renderClases(); renderMoodle(); }
 
 // --- Evaluaciones ---
@@ -1132,6 +1189,118 @@ function renderLecturas() {
   }).join('');
 }
 
+// ============ CALENDARIO ============
+const MESES_LABEL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const MESES_ABR = {ene:0,feb:1,mar:2,abr:3,may:4,jun:5,jul:6,ago:7,sep:8,oct:9,nov:10,dic:11};
+
+function parseFechaClase(c) {
+  const partes = c.fecha.trim().split(/\s+/);
+  if(partes.length < 3) return null;
+  const dia = parseInt(partes[1], 10);
+  const mes = MESES_ABR[partes[2].toLowerCase().replace('.','')];
+  if(mes === undefined || isNaN(dia)) return null;
+  return new Date(2026, mes, dia);
+}
+
+function fmtDateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function cambiarMes(delta) {
+  calMes += delta;
+  if(calMes < 0) { calMes = 11; calAnio--; }
+  else if(calMes > 11) { calMes = 0; calAnio++; }
+  renderCalendario();
+}
+
+function seleccionarDiaCal(key) {
+  calDiaSel = calDiaSel === key ? null : key;
+  renderCalendario();
+}
+
+function agregarEventoCal() {
+  if(!calDiaSel) return;
+  const input = document.getElementById('cal-evento-input');
+  const titulo = input.value.trim();
+  if(!titulo) return;
+  calendarioEventos.push({ id: Date.now(), fecha: calDiaSel, titulo });
+  input.value = '';
+  persist();
+  renderCalendario();
+}
+
+function eliminarEventoCal(id) {
+  calendarioEventos = calendarioEventos.filter(e => e.id !== id);
+  persist();
+  renderCalendario();
+}
+
+function renderCalendario() {
+  const label = document.getElementById('cal-mes-label');
+  if(!label) return;
+  label.textContent = `${MESES_LABEL[calMes]} ${calAnio}`;
+
+  const primerDia = new Date(calAnio, calMes, 1);
+  const ultimoDia = new Date(calAnio, calMes+1, 0);
+  const offset = (primerDia.getDay() + 6) % 7; // lunes=0
+  const hoyKey = fmtDateKey(new Date());
+
+  const claseDias = {};
+  CLASES.forEach(c => {
+    const d = parseFechaClase(c);
+    if(d && d.getFullYear()===calAnio && d.getMonth()===calMes) claseDias[fmtDateKey(d)] = c;
+  });
+  const plazoDias = {};
+  Object.entries(clasePlazos).forEach(([n, fechaStr]) => {
+    if(!fechaStr) return;
+    const d = new Date(fechaStr+'T00:00:00');
+    if(d.getFullYear()===calAnio && d.getMonth()===calMes) {
+      const c = CLASES.find(x => String(x.n)===String(n));
+      if(c) plazoDias[fechaStr] = c;
+    }
+  });
+
+  let html = `<div class="cal-dow">${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d=>`<div>${d}</div>`).join('')}</div><div class="cal-days">`;
+  for(let i=0; i<offset; i++) html += `<div class="cal-day empty"></div>`;
+  for(let day=1; day<=ultimoDia.getDate(); day++) {
+    const d = new Date(calAnio, calMes, day);
+    const key = fmtDateKey(d);
+    const eventos = calendarioEventos.filter(e => e.fecha===key);
+    const marcas = [];
+    if(claseDias[key]) marcas.push('<span class="cal-dot cal-dot-clase" title="Clase"></span>');
+    if(plazoDias[key]) marcas.push('<span class="cal-dot cal-dot-plazo" title="Plazo"></span>');
+    if(eventos.length) marcas.push('<span class="cal-dot cal-dot-evento" title="Evento"></span>');
+    html += `<div class="cal-day${key===hoyKey?' today':''}${key===calDiaSel?' selected':''}" onclick="seleccionarDiaCal('${key}')">
+      <span class="cal-day-num">${day}</span>
+      <div class="cal-marcas">${marcas.join('')}</div>
+    </div>`;
+  }
+  html += `</div>`;
+  document.getElementById('cal-grid').innerHTML = html;
+
+  const detalle = document.getElementById('cal-dia-detalle');
+  if(!calDiaSel) { detalle.innerHTML = ''; return; }
+  const d = new Date(calDiaSel+'T00:00:00');
+  const eventosDia = calendarioEventos.filter(e => e.fecha===calDiaSel);
+  const claseDia = claseDias[calDiaSel];
+  const plazoDia = plazoDias[calDiaSel];
+  detalle.innerHTML = `
+    <div class="cal-detalle-card">
+      <p class="cal-detalle-fecha">${d.toLocaleDateString('es-AR', {weekday:'long', day:'numeric', month:'long'})}</p>
+      ${claseDia ? `<div class="alert">📅 Clase ${String(claseDia.n).padStart(2,'0')}: ${claseDia.teoria||claseDia.practica||claseDia.taller||'—'}</div>` : ''}
+      ${plazoDia ? `<div class="alert warning">⏰ Plazo de preparación — Clase ${String(plazoDia.n).padStart(2,'0')}</div>` : ''}
+      ${eventosDia.map(e => `<div class="cal-evento-row">
+        <span>${e.titulo}</span>
+        <button class="btn-xs" onclick="eliminarEventoCal(${e.id})">✕</button>
+      </div>`).join('')}
+      <div class="add-link-row" style="margin-top:10px;">
+        <input class="inp" id="cal-evento-input" placeholder="Agregar fecha importante..." style="flex:1;min-width:160px;" />
+        <button class="btn-primary" onclick="agregarEventoCal()">+ Agregar</button>
+      </div>
+    </div>
+  `;
+}
+
 // Init
 renderAlertas();
 renderClases();
@@ -1139,6 +1308,7 @@ renderEval();
 renderGrupos();
 renderGlobal();
 renderLecturas();
+renderCalendario();
 // Inicializar select de cajón
 updateCajonSecciones();
 renderPnbCajonNotas();

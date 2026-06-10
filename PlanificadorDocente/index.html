@@ -29,6 +29,9 @@
   <button class="nav-item" onclick="switchTab('lecturas', this)">
     <span class="nav-icon">📖</span> Lecturas
   </button>
+  <button class="nav-item" onclick="switchTab('calendario', this)">
+    <span class="nav-icon">📅</span> Calendario
+  </button>
 
   <div class="nav-section-label" style="color:#6ee89a;">Procesos de Negocio</div>
   <button class="nav-item" onclick="switchTab('cronograma', this)">
@@ -219,6 +222,22 @@
     </div>
     <div class="tisi-cat-tabs" id="lecturas-filtros"></div>
     <div id="lista-lecturas"></div>
+  </div>
+
+  <!-- CALENDARIO -->
+  <div class="section" id="sec-calendario">
+    <div class="cal-header">
+      <button class="btn-xs" onclick="cambiarMes(-1)">‹ Anterior</button>
+      <div class="cal-mes-label" id="cal-mes-label"></div>
+      <button class="btn-xs" onclick="cambiarMes(1)">Siguiente ›</button>
+    </div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:12px;">
+      <span class="cal-dot cal-dot-clase" style="display:inline-block;"></span> Clase &nbsp;
+      <span class="cal-dot cal-dot-plazo" style="display:inline-block;"></span> Plazo de preparación &nbsp;
+      <span class="cal-dot cal-dot-evento" style="display:inline-block;"></span> Fecha importante
+    </p>
+    <div id="cal-grid"></div>
+    <div id="cal-dia-detalle"></div>
   </div>
 
   <div id="pnb-cajon-general" style="display:none"></div>

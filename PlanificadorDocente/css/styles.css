@@ -413,10 +413,33 @@
   .add-reflexion-form input[type="text"] { width: 100%; font-size: 15px; font-family: inherit; padding: 10px 14px; border: 2px solid var(--border2); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); margin-bottom: 8px; }
   .add-reflexion-form input[type="text"]:focus { outline: none; border-color: #0a4db3; }
 
+  /* Calendario */
+  .cal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .cal-mes-label { font-size: 18px; font-weight: 700; color: var(--text); text-transform: capitalize; }
+  .cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px; }
+  .cal-dow div { text-align: center; font-size: 12px; font-weight: 700; color: var(--text3); }
+  .cal-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .cal-day { aspect-ratio: 1; border: 2px solid var(--border); border-radius: var(--radius-sm); padding: 6px; cursor: pointer; background: var(--surface); display: flex; flex-direction: column; transition: all 0.15s; }
+  .cal-day:hover { border-color: var(--border2); }
+  .cal-day.empty { border: none; cursor: default; background: transparent; }
+  .cal-day.today { border-color: var(--accent-border); border-width: 2px; }
+  .cal-day.selected { background: var(--accent-light); border-color: var(--accent-border); }
+  .cal-day-num { font-size: 13px; font-weight: 600; }
+  .cal-marcas { display: flex; gap: 3px; margin-top: auto; flex-wrap: wrap; }
+  .cal-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .cal-dot-clase { background: var(--blue); }
+  .cal-dot-plazo { background: var(--red); }
+  .cal-dot-evento { background: var(--accent); }
+  .cal-detalle-card { margin-top: 18px; background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+  .cal-detalle-fecha { font-size: 15px; font-weight: 700; margin-bottom: 10px; text-transform: capitalize; }
+  .cal-evento-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .cal-evento-row:last-of-type { border-bottom: none; }
+
   @media (max-width: 700px) {
     .sidebar { display: none; }
     .main { margin-left: 0; padding: 20px; }
     .metrics { grid-template-columns: repeat(2, 1fr); }
     .pendientes-grid { grid-template-columns: 1fr; }
     .puntuacion-grid { grid-template-columns: 1fr; }
+    .cal-day { font-size: 11px; }
   }
