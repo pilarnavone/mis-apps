@@ -404,6 +404,12 @@ function setEstado(n, v) { estados[n] = v; persist(); renderMetrics(); renderCla
 function setNota(n, v) { notas[n] = v; persist(); }
 function setBiblio(n, v) { claseBiblio[n] = v; persist(); }
 
+function materiaLabel(m) {
+  if(!m) return '';
+  if(m.toLowerCase() === 'pnb') return 'PDN';
+  return m.toUpperCase();
+}
+
 function fechaCorta(d) { return d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit'}); }
 
 function plazoBadge(c) {
@@ -649,7 +655,7 @@ function renderCajonSinClasificar() {
     <div class="cajon-item">
       <div class="cajon-item-text">${it.texto}</div>
       <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-        <span class="cajon-item-meta">${it.materia ? it.materia.toUpperCase() + (it.seccion ? ' · '+it.seccion : '') : '⚠️ sin clasificar'}</span>
+        <span class="cajon-item-meta">${it.materia ? materiaLabel(it.materia) + (it.seccion ? ' · '+it.seccion : '') : '⚠️ sin clasificar'}</span>
         <span style="font-size:11px;color:var(--text3);">${it.fecha||''}</span>
         <button class="btn-xs remove" onclick="eliminarCajonItem(${i})" style="font-size:11px;padding:2px 6px;">✕</button>
       </div>
@@ -686,7 +692,7 @@ function renderRecordatoriosGlobal() {
     return `<div class="recordatorio-item${vencido?' vencido':''}">
       <span class="rec-fecha">${r.fecha ? formatFecha(r.fecha) : 'Sin fecha'}</span>
       <span class="rec-texto">${r.texto}</span>
-      <span class="rec-materia">${r.materia.toUpperCase()}</span>
+      <span class="rec-materia">${materiaLabel(r.materia)}</span>
       <button class="btn-xs" onclick="toggleRecordatorio(${idx})" title="Marcar como hecho" style="font-size:11px;padding:3px 8px;">✓</button>
       <button class="btn-xs remove" onclick="eliminarRecordatorio(${idx})" style="font-size:11px;padding:3px 6px;">✕</button>
     </div>`;
